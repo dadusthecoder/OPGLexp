@@ -1,6 +1,6 @@
 ﻿# 🌌 OpenGL Experimental Renderer
 
-This project is an **experimental renderer** built with **C++ and OpenGL**, created as a personal learning journey into the world of modern graphics programming and real-time rendering pipelines.This is my first Computer graphics related project , the main goal here is to learn about the graphics api , and how dose the conputer actually rasterize the pxles
+This project is an **experimental renderer** built with **C++ and OpenGL**, created as a personal learning journey into the world of modern graphics programming and real-time rendering pipelines.This is my first Computer graphics related project , the main goal here is to learn about the graphics api , and how dose the conputer actually rasterize the pxles.
 The long-term goal is to evolve this project into a **Physically Based Renderer (PBR)** from scratch. For now, it serves as a sandbox for experimenting with rendering techniques, shaders, and scene management systems.
 
 ---
