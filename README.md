@@ -5,7 +5,12 @@ The long-term goal is to evolve this project into a **Physically Based Renderer 
 
 ---
 ## screenshots
-![Image](https://github.com/user-attachments/assets/488a5f97-6180-4530-9470-11fa5bdac939)
+<img width="1915" height="1038" alt="image" src="https://github.com/user-attachments/assets/1916bbf9-402d-419f-937c-5fb5c8dcbf7e" />
+<img width="1918" height="1075" alt="Screenshot 2025-10-25 230854" src="https://github.com/user-attachments/assets/5593938b-38e9-4827-81d0-8f7e8356ac19" />
+<img width="1919" height="1061" alt="Screenshot 2025-09-03 023458" src="https://github.com/user-attachments/assets/9024775b-326a-43ab-abc5-c585c016c503" />
+
+
+
 
 ## 📸 Current Features (Experimental)
 
