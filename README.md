@@ -1,4 +1,4 @@
-﻿# 🌌 OpenGL Experimental Renderer
+﻿# OpenGL Experimental Renderer
 
 This project is an **experimental renderer** built with **C++ and OpenGL**, created as a personal learning journey into the world of modern graphics programming and real-time rendering pipelines.This is my first Computer graphics related project , the main goal here is to learn about the graphics api , and how dose the Computers actually rasterize the pxles.
 The long-term goal is to evolve this project into a **Physically Based Renderer (PBR)** from scratch. For now, it serves as a sandbox for experimenting with rendering techniques, shaders, and scene management systems.
@@ -16,45 +16,45 @@ The long-term goal is to evolve this project into a **Physically Based Renderer 
 
 > These are early implementations meant to support learning and experimentation.
 
-- 🎮 **Interactive Camera System** with configurable movement speed
-- 💡 **Lighting Settings Panel**
+-  **Interactive Camera System** with configurable movement speed
+-  **Lighting Settings Panel**
   - Position control
   - RGB color picker
   - Auto-alignment with the camera
-- 🎨 **Real-Time Shader Reloading**
+-  **Real-Time Shader Reloading**
   - Reload vertex/fragment shaders without restarting the app
-- 📦 **Model Controls**
+-  **Model Controls**
   - Load `.fbx` or `.obj` files
   - Position, Rotation (in degrees), and Scaling transforms
   - Reset buttons for convenience
-- 🌌 **Environment Controls**
+-  **Environment Controls**
   - Background color configuration
-- 🧭 **Camera Diagnostics Panel**
+-  **Camera Diagnostics Panel**
   - Real-time position and direction info
-- 🧪 **Render Mode Switching**
+-  **Render Mode Switching**
   - Fill, Wireframe, Point modes
-- ⚖️ **Gravity Toggle** (basic simulation toggle)
-- 📈 **FPS Display** (updated in real time via ImGui)
+-  **Gravity Toggle** (basic simulation toggle)
+-  **FPS Display** (updated in real time via ImGui)
 
 ---
 
-## 🚀 Planned Features
+##  Planned Features
 
 > Future development will progressively introduce more advanced rendering concepts.
 
-- ✅ Physically Based Rendering (PBR)
+-  Physically Based Rendering (PBR)
   - Albedo, Roughness, Metalness, Normal maps
-- ✅ Image-Based Lighting (IBL) with HDR
-- ✅ Shadow Mapping (Directional + Point lights)
-- ✅ Material system with GUI-based editing
-- ✅ Post-processing effects (Bloom, FXAA, Tonemapping)
-- ✅ Scene hierarchy and editor
-- ✅ Entity Component System (ECS) for simulation
-- ✅ Asset hot-reloading
+-  Image-Based Lighting (IBL) with HDR
+-  Shadow Mapping (Directional + Point lights)
+-  Material system with GUI-based editing
+-  Post-processing effects (Bloom, FXAA, Tonemapping)
+-  Scene hierarchy and editor
+-  Entity Component System (ECS) for simulation
+-  Asset hot-reloading
 
 ---
 
-## 🧱 Tech Stack
+##  Externals / Tools
 
 | Component              |                  Tool used                          |
 |------------------------|-----------------------------------------------------|
