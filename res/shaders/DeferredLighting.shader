@@ -58,12 +58,27 @@ layout(binding = 6) uniform sampler2D u_BrdfLUT;
 layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMap; // for PCF comparison
 
+// DDGI Textures
+layout(binding = 10) uniform sampler2D u_DDGIIrradiance;
+layout(binding = 11) uniform sampler2D u_DDGIDepth;
+
 uniform int u_CascadeCount;
 uniform float u_CascadePlaneDistances[4];
 uniform mat4 u_LightSpaceMatrices[4];
 uniform bool u_HasIBL;
 uniform bool u_SSAOEnabled;
+
+// DDGI Settings
+uniform bool   u_DDGIEnabled;
+uniform vec3   u_DDGIOrigin;
+uniform vec3   u_DDGISpacing;
+uniform ivec3  u_DDGIProbeCount;
+uniform float  u_DDGIIntensity;
+uniform float  u_DDGIBlend;
+
 uniform int u_DebugMode;
+uniform int u_ShadowDebugMode;
+uniform int u_DDGIDebugMode;
 
 // ============================================================
 // Shadow debug mode — visualizes individual pipeline stages.
@@ -83,7 +98,7 @@ uniform int u_DebugMode;
 // If ANY mode 1,3-10 changes when you ONLY rotate the camera,
 // the bug is in the stage that produces that value.
 // ============================================================
-uniform int u_ShadowDebugMode; // 0 = off, 1-10 as above
+// ============================================================
 
 // ============================================================
 // Reconstruct world space position from depth
@@ -246,6 +261,139 @@ float SmithGGX(float NdotV, float NdotL, float roughness) {
     return 0.5 / (GGXV + GGXL);
 }
 
+// -----------------------------------------------------------------------------
+// Octahedral mapping for DDGI
+vec2 signNotZero(vec2 v) {
+    return vec2((v.x >= 0.0) ? 1.0 : -1.0, (v.y >= 0.0) ? 1.0 : -1.0);
+}
+
+vec2 OctahedralEncode(vec3 v) {
+    float l1norm = abs(v.x) + abs(v.y) + abs(v.z);
+    vec2 result = v.xy * (1.0 / l1norm);
+    if (v.z < 0.0) {
+        result = (1.0 - abs(result.yx)) * signNotZero(result.xy);
+    }
+    return result;
+}
+
+vec3 SampleDDGI(vec3 worldPos, vec3 normal, 
+                out vec3 dbg_irradiance, 
+                out float dbg_visibility, 
+                out vec3 dbg_probeIndex, 
+                out float dbg_trilinear, 
+                out float dbg_direction) {
+    // Initialize debug outputs
+    dbg_irradiance = vec3(0.0);
+    dbg_visibility = 0.0;
+    dbg_probeIndex = vec3(0.0);
+    dbg_trilinear = 0.0;
+    dbg_direction = 0.0;
+
+    // 1. Compute grid coordinates
+    vec3 gridCoord = (worldPos - u_DDGIOrigin) / u_DDGISpacing;
+    ivec3 baseProbe = ivec3(floor(gridCoord));
+    vec3 alpha = fract(gridCoord);
+
+    // Save base probe index as color for debug
+    dbg_probeIndex = fract(vec3(baseProbe) * 0.1);
+
+    vec3 sumIrradiance = vec3(0.0);
+    float sumWeight = 0.0;
+
+    int irradianceTexSize = 8;
+    int depthTexSize = 16;
+    int border = 1;
+    int probeTexSize = irradianceTexSize + 2 * border;
+    int depthProbeTexSize = depthTexSize + 2 * border;
+
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+        ivec3 probeIdx = baseProbe + offset;
+
+        // Clamp to grid bounds
+        probeIdx = clamp(probeIdx, ivec3(0), u_DDGIProbeCount - 1);
+
+        // Trilinear weight
+        vec3 trilinear = mix(1.0 - alpha, alpha, vec3(offset));
+        float weight = trilinear.x * trilinear.y * trilinear.z;
+
+        // Direction weight (normal dot direction from fragment to probe)
+        vec3 probePos = u_DDGIOrigin + vec3(probeIdx) * u_DDGISpacing;
+        vec3 dirToProbe = normalize(probePos - worldPos);
+        float distToProbe = length(probePos - worldPos);
+        
+        // Simple backface rejection
+        float wrap = 0.5;
+        float directionWeight = max(0.0, (dot(dirToProbe, normal) + wrap) / (1.0 + wrap));
+        
+        weight *= directionWeight;
+        
+        if (weight <= 0.0) continue;
+
+        int linearIdx = probeIdx.z * u_DDGIProbeCount.x * u_DDGIProbeCount.y + 
+                        probeIdx.y * u_DDGIProbeCount.x + 
+                        probeIdx.x;
+                        
+        // === Depth / Visibility (Chebyshev) ===
+        int depthAtlasX = (linearIdx % u_DDGIProbeCount.x) * depthProbeTexSize + border;
+        int depthAtlasY = (linearIdx / u_DDGIProbeCount.x) * depthProbeTexSize + border;
+
+        vec2 octDepthCoord = OctahedralEncode(-dirToProbe); // Direction FROM probe TO fragment
+        vec2 depthProbeUV = (octDepthCoord * 0.5 + 0.5) * float(depthTexSize);
+        vec2 depthAtlasSize = vec2(textureSize(u_DDGIDepth, 0));
+        vec2 depthUV = (vec2(depthAtlasX, depthAtlasY) + depthProbeUV) / depthAtlasSize;
+
+        vec2 depthData = texture(u_DDGIDepth, depthUV).rg;
+        float meanDepth = depthData.x;
+        float meanDepthSq = depthData.y;
+        
+        // Variance
+        float variance = abs(meanDepthSq - (meanDepth * meanDepth));
+        variance = max(variance, 0.05); // threshold
+
+        float visibility = 1.0;
+        float chebyshevDist = distToProbe - 0.2; // bias
+        if (chebyshevDist > meanDepth) {
+            float mD = chebyshevDist - meanDepth;
+            float p_max = variance / (variance + mD * mD);
+            visibility = max(0.0, p_max);
+            visibility = pow(visibility, 3.0); // sharpen the falloff
+        }
+        
+        // To avoid total darkness when heavily occluded, we clamp weight instead of hard zeroing.
+        weight *= visibility;
+        
+        if (weight <= 0.0) continue;
+
+        // Record the weight for debug
+        if (dbg_trilinear == 0.0) {
+            dbg_trilinear = trilinear.x * trilinear.y * trilinear.z;
+            dbg_direction = directionWeight;
+            dbg_visibility = visibility; 
+        }
+
+        // === Irradiance ===
+        int atlasX = (linearIdx % u_DDGIProbeCount.x) * probeTexSize + border;
+        int atlasY = (linearIdx / u_DDGIProbeCount.x) * probeTexSize + border;
+
+        vec2 octCoord = OctahedralEncode(normal);
+        vec2 probeUV = (octCoord * 0.5 + 0.5) * float(irradianceTexSize);
+        vec2 atlasSize = vec2(textureSize(u_DDGIIrradiance, 0));
+        vec2 uv = (vec2(atlasX, atlasY) + probeUV) / atlasSize;
+
+        vec3 irradiance = texture(u_DDGIIrradiance, uv).rgb;
+        
+        sumIrradiance += irradiance * weight;
+        sumWeight += weight;
+    }
+
+    if (sumWeight == 0.0) return vec3(0.0);
+    vec3 finalIrradiance = sumIrradiance / sumWeight;
+    dbg_irradiance = finalIrradiance;
+    return finalIrradiance;
+}
+// -----------------------------------------------------------------------------
+
 // ============================================================
 // Main
 // ============================================================
@@ -387,6 +535,41 @@ void main() {
     }
 
     // ============================================================
+    // DDGI DEBUG VISUALIZATIONS
+    // ============================================================
+    if (u_DDGIDebugMode != 0) {
+        vec3 debugColor = vec3(0.0);
+        
+        vec3 dbg_irradiance;
+        float dbg_visibility;
+        vec3 dbg_probeIndex;
+        float dbg_trilinear;
+        float dbg_direction;
+        
+        SampleDDGI(WorldPos, N, dbg_irradiance, dbg_visibility, dbg_probeIndex, dbg_trilinear, dbg_direction);
+        
+        if (u_DDGIDebugMode == 1) {
+            // Probe Irradiance
+            debugColor = dbg_irradiance;
+        } else if (u_DDGIDebugMode == 2) {
+            // Probe Visibility
+            debugColor = vec3(dbg_visibility);
+        } else if (u_DDGIDebugMode == 3) {
+            // Probe Index Color
+            debugColor = dbg_probeIndex;
+        } else if (u_DDGIDebugMode == 4) {
+            // Trilinear Weight
+            debugColor = vec3(dbg_trilinear);
+        } else if (u_DDGIDebugMode == 5) {
+            // Direction Weight
+            debugColor = vec3(dbg_direction);
+        }
+        
+        FragColor = vec4(debugColor, 1.0);
+        return;
+    }
+
+    // ============================================================
     // Normal PBR lighting path
     // ============================================================
     vec3 finalColor = vec3(0.0);
@@ -396,17 +579,29 @@ void main() {
     vec3 kD    = (1.0 - kS) * (1.0 - metallic);
 
     vec3 ambient = vec3(0.0);
+    vec3 iblDiffuse = vec3(0.0);
+    vec3 iblSpecular = vec3(0.0);
+
     if (u_HasIBL) {
         vec3 irradiance      = texture(u_IrradianceMap, N).rgb;
-        vec3 diffuse         = irradiance * albedo;
+        iblDiffuse           = irradiance * albedo;
         vec3 R               = reflect(-V, N);
         const float MAX_LOD  = 4.0;
         vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_LOD).rgb;
         vec2 brdf            = texture(u_BrdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-        vec3 specular        = prefilteredColor * (F_IBL * brdf.x + brdf.y);
-        ambient              = kD * diffuse + specular;
+        iblSpecular          = prefilteredColor * (F_IBL * brdf.x + brdf.y);
     } else {
-        ambient = albedo * 0.03;
+        iblDiffuse = albedo * 0.03;
+    }
+
+    if (u_DDGIEnabled) {
+        vec3 dummyIrradiance; float dummyVis; vec3 dummyIdx; float dummyTri; float dummyDir;
+        vec3 ddgiDiffuse = SampleDDGI(WorldPos, N, dummyIrradiance, dummyVis, dummyIdx, dummyTri, dummyDir) * u_DDGIIntensity * albedo;
+        // Blend between IBL diffuse and DDGI diffuse based on settings
+        vec3 blendedDiffuse = mix(iblDiffuse, ddgiDiffuse, u_DDGIBlend);
+        ambient = kD * blendedDiffuse + iblSpecular;
+    } else {
+        ambient = kD * iblDiffuse + iblSpecular;
     }
 
     if (u_SSAOEnabled) {
@@ -414,7 +609,6 @@ void main() {
         ambient *= ao;
     }
     finalColor += ambient;
-
     for (int i = 0; i < lightCount; i++) {
         int lightIdx = visibleLightIndices[offset + 1u + uint(i)];
         Light light  = lights[lightIdx];

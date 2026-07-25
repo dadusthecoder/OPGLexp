@@ -254,6 +254,8 @@ void StaticBVH::Build(const std::vector<std::shared_ptr<SceneNode>>& roots) {
 
     // Transform internal representation to GPU-aligned std430 struct
     m_GPUNodes.resize(m_NodesUsed);
+    // Transform internal representation to GPU-aligned std430 struct
+    m_GPUNodes.resize(m_NodesUsed);
     for (int i = 0; i < m_NodesUsed; ++i) {
         m_GPUNodes[i].minX = m_Nodes[i].boundsMin.x;
         m_GPUNodes[i].minY = m_Nodes[i].boundsMin.y;
@@ -277,20 +279,24 @@ void StaticBVH::Build(const std::vector<std::shared_ptr<SceneNode>>& roots) {
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
 
-    CORE_INFO("BVH built: {0} nodes, {1} triangles in {2} ms", m_NodesUsed, m_Triangles.size(), duration);
+    CORE_INFO("BVH built: {} nodes, {} triangles in {} ms", m_NodesUsed, m_Triangles.size(), duration);
+    CORE_INFO("Root bounds: Min({}, {}, {}) Max({}, {}, {})", 
+        m_GPUNodes[0].minX, m_GPUNodes[0].minY, m_GPUNodes[0].minZ,
+        m_GPUNodes[0].maxX, m_GPUNodes[0].maxY, m_GPUNodes[0].maxZ);
 }
 
 void StaticBVH::UploadToGPU() {
-    if (!m_IsBuilt) return;
-
+    if (m_NodesSSBO == 0) glGenBuffers(1, &m_NodesSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_NodesSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, m_GPUNodes.size() * sizeof(BVHNodeGPU), m_GPUNodes.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, m_GPUNodes.size() * sizeof(BVHNodeGPU), m_GPUNodes.data(), GL_STATIC_COPY);
 
+    if (m_VerticesSSBO == 0) glGenBuffers(1, &m_VerticesSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_VerticesSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, m_Vertices.size() * sizeof(glm::vec4), m_Vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, m_Vertices.size() * sizeof(glm::vec4), m_Vertices.data(), GL_STATIC_COPY);
 
+    if (m_IndicesSSBO == 0) glGenBuffers(1, &m_IndicesSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_IndicesSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, m_Indices.size() * sizeof(uint32_t), m_Indices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, m_Indices.size() * sizeof(uint32_t), m_Indices.data(), GL_STATIC_COPY);
     
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }

@@ -12,6 +12,10 @@ struct GPUResources {
     // Persistent AO output texture
     GLuint aoTexture = 0;
     int aoWidth = 0, aoHeight = 0;
+
+    // DDGI
+    GLuint ddgiIrradianceAtlas = 0;
+    GLuint ddgiDepthAtlas = 0;
     
     void Init(int w, int h) {
         blueNoise.Init();

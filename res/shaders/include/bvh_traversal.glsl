@@ -1,8 +1,12 @@
 struct BVHNode {
-    float minX, minY, minZ;
-    int   leftFirst;  // leaf: first tri index, inner: left child
-    float maxX, maxY, maxZ;
-    int   count;      // >0 = leaf with count tris, 0 = inner node
+    float minX;
+    float minY;
+    float minZ;
+    int leftFirst;
+    float maxX;
+    float maxY;
+    float maxZ;
+    int count;
 };
 
 struct HitInfo {
@@ -34,10 +38,10 @@ bool TraceAnyHit(vec3 origin, vec3 direction, float maxDist) {
     Ray ray;
     ray.origin = origin;
     ray.direction = direction;
-    ray.tMin = 0.001;
+    ray.tMin = 0.0;
     ray.tMax = maxDist;
 
-    int stack[32];
+    int stack[64];
     int stackPtr = 0;
     
     // Start at root node
@@ -86,10 +90,10 @@ HitInfo TraceClosestHit(vec3 origin, vec3 direction, float maxDist) {
     Ray ray;
     ray.origin = origin;
     ray.direction = direction;
-    ray.tMin = 0.001;
+    ray.tMin = 0.0;
     ray.tMax = maxDist;
 
-    int stack[32];
+    int stack[64];
     int stackPtr = 0;
     
     // Start at root node

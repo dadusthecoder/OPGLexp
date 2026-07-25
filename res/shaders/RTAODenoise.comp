@@ -1,4 +1,5 @@
 #version 460 core
+#shader Compute
 // ============================================================
 // RTAODenoise.comp — Edge-aware bilateral blur for RTAO
 //

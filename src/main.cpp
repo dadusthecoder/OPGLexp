@@ -1,6 +1,9 @@
-
 #include "Renderer/ErrorReporting.h"
+#include "Renderer/GPUResources.h"
 #include "Renderer/Scene.h"
+#include "Renderer/Material.h"
+#include "Renderer/DDGIPass.h"
+#include "Renderer/Primitives.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Renderer.h"
 #include "UI/Editor.h"
@@ -141,7 +144,38 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
     lgt::Camera camera((int)width, (int)height, glm::vec3(0.0f, 1.5f, 3.0f));
 
     // Load Sponza test scene
-    scene.LoadGltf("res/modles/sopnza_palace/Sponza_palace.gltf");
+    // scene.LoadGltf("res/modles/sopnza_palace/Sponza_palace.gltf");
+    
+    // Create a default 1x1 white texture to prevent shader discard due to handle 0
+    GLuint defaultTex;
+    glGenTextures(1, &defaultTex);
+    glBindTexture(GL_TEXTURE_2D, defaultTex);
+    uint32_t whitePixel = 0xFFFFFFFF;
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &whitePixel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    GLuint64 defaultTexHandle = glGetTextureHandleARB(defaultTex);
+    glMakeTextureHandleResidentARB(defaultTexHandle);
+
+    // Create test scene materials
+    lgt::MaterialGPU matRed = { glm::vec4(1.0f, 0.2f, 0.2f, 1.0f), glm::vec4(0), 1.0f, 0.0f, 0.0f, defaultTexHandle, defaultTexHandle, defaultTexHandle };
+    lgt::MaterialGPU matGreen = { glm::vec4(0.2f, 1.0f, 0.2f, 1.0f), glm::vec4(0), 1.0f, 0.0f, 0.0f, defaultTexHandle, defaultTexHandle, defaultTexHandle };
+    lgt::MaterialGPU matBlue = { glm::vec4(0.2f, 0.2f, 1.0f, 1.0f), glm::vec4(0), 1.0f, 0.0f, 0.0f, defaultTexHandle, defaultTexHandle, defaultTexHandle };
+    lgt::MaterialGPU matWhite = { glm::vec4(0.9f, 0.9f, 0.9f, 1.0f), glm::vec4(0), 1.0f, 0.0f, 0.0f, defaultTexHandle, defaultTexHandle, defaultTexHandle };
+    lgt::MaterialGPU matEmissive = { glm::vec4(1.0f), glm::vec4(10.0f, 10.0f, 10.0f, 1.0f), 1.0f, 0.0f, 10.0f, defaultTexHandle, defaultTexHandle, defaultTexHandle };
+
+    uint32_t matRedIdx = lgt::g_MaterialGPU.size(); lgt::g_MaterialGPU.push_back(matRed);
+    uint32_t matGreenIdx = lgt::g_MaterialGPU.size(); lgt::g_MaterialGPU.push_back(matGreen);
+    uint32_t matBlueIdx = lgt::g_MaterialGPU.size(); lgt::g_MaterialGPU.push_back(matBlue);
+    uint32_t matWhiteIdx = lgt::g_MaterialGPU.size(); lgt::g_MaterialGPU.push_back(matWhite);
+    uint32_t matEmissiveIdx = lgt::g_MaterialGPU.size(); lgt::g_MaterialGPU.push_back(matEmissive);
+
+    // Register them in the BRDF map for the Material Editor UI
+    lgt::g_MaterialBRDF["Red Wall"] = { matRedIdx, matRed.baseColor, matRed.emmisiveColor, matRed.roughness, matRed.metallic, matRed.emmisiveStrength };
+    lgt::g_MaterialBRDF["Green Wall"] = { matGreenIdx, matGreen.baseColor, matGreen.emmisiveColor, matGreen.roughness, matGreen.metallic, matGreen.emmisiveStrength };
+    lgt::g_MaterialBRDF["Blue"] = { matBlueIdx, matBlue.baseColor, matBlue.emmisiveColor, matBlue.roughness, matBlue.metallic, matBlue.emmisiveStrength };
+    lgt::g_MaterialBRDF["White Floor"] = { matWhiteIdx, matWhite.baseColor, matWhite.emmisiveColor, matWhite.roughness, matWhite.metallic, matWhite.emmisiveStrength };
+    lgt::g_MaterialBRDF["Emissive Bulb"] = { matEmissiveIdx, matEmissive.baseColor, matEmissive.emmisiveColor, matEmissive.roughness, matEmissive.metallic, matEmissive.emmisiveStrength };
 
     // Setup Directional Light (Sun)
     lgt::Light sunLight;
@@ -151,7 +185,7 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
     sunLight.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
     scene.addLight(sunLight);
 
-    // Setup a couple of point lights to show off the Forward+ clustered shading
+    // Setup a couple of point lights
     lgt::Light point1;
     point1.position = glm::vec4(4.0f, 1.0f, 0.0f, 0.0f); // w=0 (point)
     point1.color     = glm::vec4(1.0f, 0.2f, 0.2f, 5.0f); // Red
@@ -166,6 +200,67 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
     point2.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
     scene.addLight(point2);
 
+    // Create a Cornell Box style room (without a roof so the sun can shine in!)
+    std::shared_ptr<lgt::SceneNode> roomNode = std::make_shared<lgt::SceneNode>();
+    roomNode->name = "Room";
+    
+    // Floor
+    auto floor = lgt::Primitives::CreatePlaneMesh("Floor", 10.0f, 10.0f, matWhiteIdx);
+    roomNode->meshes.push_back(floor);
+    
+    // Back Wall
+    auto backWall = lgt::Primitives::CreatePlaneMesh("BackWall", 10.0f, 10.0f, matWhiteIdx);
+    std::shared_ptr<lgt::SceneNode> bwNode = std::make_shared<lgt::SceneNode>();
+    bwNode->meshes.push_back(backWall);
+    bwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0, 10, -10)) * glm::rotate(glm::mat4(1.0f), 1.570796f, glm::vec3(1, 0, 0));
+    roomNode->children.push_back(bwNode); bwNode->parent = roomNode.get();
+
+    // Left Wall
+    auto leftWall = lgt::Primitives::CreatePlaneMesh("LeftWall", 10.0f, 10.0f, matRedIdx);
+    std::shared_ptr<lgt::SceneNode> lwNode = std::make_shared<lgt::SceneNode>();
+    lwNode->meshes.push_back(leftWall);
+    lwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(-10, 10, 0)) * glm::rotate(glm::mat4(1.0f), -1.570796f, glm::vec3(0, 0, 1));
+    roomNode->children.push_back(lwNode); lwNode->parent = roomNode.get();
+
+    // Right Wall
+    auto rightWall = lgt::Primitives::CreatePlaneMesh("RightWall", 10.0f, 10.0f, matGreenIdx);
+    std::shared_ptr<lgt::SceneNode> rwNode = std::make_shared<lgt::SceneNode>();
+    rwNode->meshes.push_back(rightWall);
+    rwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(10, 10, 0)) * glm::rotate(glm::mat4(1.0f), 1.570796f, glm::vec3(0, 0, 1));
+    roomNode->children.push_back(rwNode); rwNode->parent = roomNode.get();
+
+    // Create a sphere
+    std::shared_ptr<lgt::SceneNode> sphereNode = std::make_shared<lgt::SceneNode>();
+    sphereNode->name = "Sphere";
+    sphereNode->meshes.push_back(lgt::Primitives::CreateSphereMesh("SphereMesh", 2.0f, 32, 32, matWhiteIdx));
+    sphereNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(-4.0f, 2.0f, 0.0f));
+    roomNode->children.push_back(sphereNode);
+    sphereNode->parent = roomNode.get();
+
+    // Create a cube
+    std::shared_ptr<lgt::SceneNode> cubeNode = std::make_shared<lgt::SceneNode>();
+    cubeNode->name = "Cube";
+    cubeNode->meshes.push_back(lgt::Primitives::CreateCubeMesh("CubeMesh", 3.0f, matWhiteIdx));
+    cubeNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(4.0f, 1.5f, 0.0f));
+    roomNode->children.push_back(cubeNode);
+    cubeNode->parent = roomNode.get();
+    
+    // Add light bulb (emissive sphere)
+    std::shared_ptr<lgt::SceneNode> lightNode = std::make_shared<lgt::SceneNode>();
+    lightNode->name = "Light Bulb";
+    lightNode->meshes.push_back(lgt::Primitives::CreateSphereMesh("LightMesh", 1.0f, 16, 16, matEmissiveIdx));
+    lightNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 8.0f, 0.0f));
+    roomNode->children.push_back(lightNode);
+    lightNode->parent = roomNode.get();
+
+    scene.AddRootNode(roomNode);
+    scene.Update();
+    scene.BuildAccelerationStructure();
+
+    // Setup DDGI Volume for the test scene
+    auto ddgiVolume = std::make_unique<lgt::DDGIVolume>();
+    ddgiVolume->Init(glm::vec3(-15.0f, -15.0f, -15.0f), glm::vec3(15.0f, 15.0f, 15.0f));
+    scene.GetProbeVolumes().push_back(std::move(ddgiVolume));
 
     lgt::Renderer renderer(&scene, &camera);
     renderer.init();
@@ -231,6 +326,7 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
             else if (ctx.gBufferDebugView == 4) displayTexture = ctx.gVelocity;
             else if (ctx.gBufferDebugView == 5) displayTexture = ctx.gDepth;
             else if (ctx.gBufferDebugView == 6) displayTexture = ctx.aoTexture;
+            else if (ctx.gBufferDebugView == 7 && ctx.gpuResources) displayTexture = ctx.gpuResources->ddgiIrradianceAtlas;
             
             ImGui::Image((ImTextureID)(intptr_t)displayTexture, viewportSize, ImVec2(0, 1), ImVec2(1, 0));
 

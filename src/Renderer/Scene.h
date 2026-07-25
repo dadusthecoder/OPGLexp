@@ -12,9 +12,10 @@
 
 #include "Renderer.h"
 
-namespace lgt {
+#include "AccelerationStructure.h"
+#include "DDGIVolume.h"
 
-class AccelerationStructure;
+namespace lgt {
 
 enum class LightType {
     POINT = 0,
@@ -77,7 +78,11 @@ public:
     void ClearAccelDirty() { m_accelDirty = false; }
     void CleanUpMaterials();
 
+    const std::vector<std::unique_ptr<DDGIVolume>>& GetProbeVolumes() const { return m_probeVolumes; }
+    std::vector<std::unique_ptr<DDGIVolume>>& GetProbeVolumes() { return m_probeVolumes; }
+
     const std::vector<std::shared_ptr<SceneNode>>& getRootNodes() const { return m_RootNodes; }
+    void                                           AddRootNode(std::shared_ptr<SceneNode> node) { m_RootNodes.push_back(node); }
     std::vector<MaterialGPU>&                      getMaterialBuffer() { return m_materialBuffer; };
     std::vector<Light>&                       getLights() { return m_lights; }
     void                                      addLight(const Light& light) { m_lights.push_back(light); }
@@ -101,6 +106,9 @@ private:
     // Acceleration structure for ray tracing
     std::unique_ptr<AccelerationStructure>  m_accel;
     bool                                    m_accelDirty = true;
+
+    // DDGI Probe Volumes
+    std::vector<std::unique_ptr<DDGIVolume>> m_probeVolumes;
 };
 
 } // namespace lgt

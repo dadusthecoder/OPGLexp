@@ -1,5 +1,6 @@
 #pragma once
 #include "RenderPass.h"
+#include "Scene.h"
 #include "Shader.h"
 #include "DDGIVolume.h"
 #include "RayTracer.h"
@@ -19,13 +20,16 @@ public:
     ~DDGIPass() override = default;
 
     void Init(RenderContext& ctx) override {
-        m_traceShader  = new Pipeline("res/shaders/DDGIProbeTrace.comp");
-        m_updateShader = new Pipeline("res/shaders/DDGIProbeUpdate.comp");
+        m_traceShader  = new Pipeline("res/shaders/DDGIProbeTrace.comp", ShaderType::COMPUTESHADER);
+        m_updateShader = new Pipeline("res/shaders/DDGIProbeUpdate.comp", ShaderType::COMPUTESHADER);
+        m_borderShader = new Pipeline("res/shaders/DDGIBorderUpdate.comp", ShaderType::COMPUTESHADER);
 
         if (!m_traceShader || !m_traceShader->isValid())
             CORE_ERROR("DDGIPass: Failed to compile DDGIProbeTrace.comp");
         if (!m_updateShader || !m_updateShader->isValid())
             CORE_ERROR("DDGIPass: Failed to compile DDGIProbeUpdate.comp");
+        if (!m_borderShader || !m_borderShader->isValid())
+            CORE_ERROR("DDGIPass: Failed to compile DDGIBorderUpdate.comp");
 
         CORE_INFO("DDGIPass initialized");
     }
@@ -33,6 +37,7 @@ public:
     void Execute(RenderContext& ctx) override {
         if (!m_traceShader || !m_traceShader->isValid()) return;
         if (!m_updateShader || !m_updateShader->isValid()) return;
+        if (!m_borderShader || !m_borderShader->isValid()) return;
         if (!ctx.ddgi.enabled) return;
 
         auto* scene = ctx.scene;
@@ -75,17 +80,31 @@ public:
             m_traceShader->setInt("u_RaysPerProbe", volume->raysPerProbe);
 
             // Mock sun (since we don't have direct light access in this pass yet)
-            m_traceShader->setVec3("u_SunDirection", glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f)));
-            m_traceShader->setVec3("u_SunColor", glm::vec3(1.0f));
-
+            if (ctx.scene && !ctx.scene->getLights().empty()) {
+                auto& sun = ctx.scene->getLights()[0];
+                m_traceShader->setVec3("u_SunDirection", glm::normalize(-glm::vec3(sun.direction)));
+                m_traceShader->setVec3("u_SunColor", glm::vec3(sun.color) * sun.color.w);
+            } else {
+                m_traceShader->setVec3("u_SunDirection", glm::normalize(glm::vec3(-0.2f, 1.0f, -0.3f)));
+                m_traceShader->setVec3("u_SunColor", glm::vec3(1.0f));
+            }
+            
+            // Bind Skybox (Irradiance map for ambient)
+            if (ctx.irradianceMap > 0) {
+                glActiveTexture(GL_TEXTURE0 + 10);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.irradianceMap);
+                m_traceShader->setInt("u_Skybox", 10);
+            }
+            
             // Dispatch trace: 1 workgroup per probe
             m_traceShader->dispatch(totalProbes, 1, 1);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             accel->Unbind();
 
-            // 2. Update Irradiance Atlas
+            // 2. Update Irradiance & Depth Atlas
             m_updateShader->use();
             glBindImageTexture(0, volume->irradianceAtlas, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
+            glBindImageTexture(1, volume->depthAtlas, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RG16F);
             
             // Re-bind SSBO just to be safe
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, volume->rayDataSSBO);
@@ -95,8 +114,20 @@ public:
             m_updateShader->setFloat("u_Hysteresis", volume->hysteresis);
             m_updateShader->setInt("u_IrradianceTexSize", DDGIVolume::IRRADIANCE_TEXELS);
 
-            // Dispatch update: 1 workgroup per probe (8x8 threads)
+            // Dispatch update: 1 workgroup per probe (16x16 threads is enough for both 8x8 irradiance and 16x16 depth)
             m_updateShader->dispatch(volume->probeCount.x, volume->probeCount.y, volume->probeCount.z);
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+
+            // 3. Update Atlas Borders
+            m_borderShader->use();
+            glBindImageTexture(0, volume->irradianceAtlas, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
+            glBindImageTexture(1, volume->depthAtlas, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RG16F);
+            
+            m_borderShader->setIVec3("u_ProbeCount", volume->probeCount);
+            m_borderShader->setInt("u_TexSize", DDGIVolume::IRRADIANCE_TEXELS);
+            
+            // Dispatch border update: 1 workgroup per probe, threads mapped to border pixels
+            m_borderShader->dispatch(volume->probeCount.x, volume->probeCount.y, volume->probeCount.z);
             glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
 
             // Set the atlas in the context so the lighting pass can read it
@@ -112,8 +143,10 @@ public:
     void Shutdown() override {
         delete m_traceShader;
         delete m_updateShader;
+        delete m_borderShader;
         m_traceShader = nullptr;
         m_updateShader = nullptr;
+        m_borderShader = nullptr;
     }
 
     const char* GetName() const override { return "DDGIPass"; }
@@ -121,6 +154,7 @@ public:
 private:
     Pipeline* m_traceShader  = nullptr;
     Pipeline* m_updateShader = nullptr;
+    Pipeline* m_borderShader = nullptr;
     int       m_frameCounter = 0;
 };
 

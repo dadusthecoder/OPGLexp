@@ -83,6 +83,9 @@ shadersource Pipeline::parseShader(const std::string& filepath) {
         COMPUTE  = 2
     };
     InternalShaderType type = InternalShaderType::NONE;
+    if (m_type == ShaderType::COMPUTESHADER || filepath.find(".comp") != std::string::npos) {
+        type = InternalShaderType::COMPUTE;
+    }
 
     auto processFile = [&](const std::string& currentFilepath, InternalShaderType& currentType, auto& processFileRef) -> void {
         std::ifstream stream(currentFilepath);
@@ -286,9 +289,15 @@ void Pipeline::setBool(const std::string& name, bool value) const {
 }
 
 void Pipeline::setInt(const std::string& name, int value) const {
-    int loc = getUniformLocation(name);
-    if (loc != -1)
-        glUniform1i(loc, value);
+    glUniform1i(getUniformLocation(name), value);
+}
+
+void Pipeline::setIVec3(const std::string& name, const glm::ivec3& value) const {
+    glUniform3iv(getUniformLocation(name), 1, &value[0]);
+}
+
+void Pipeline::setIVec3(const std::string& name, int x, int y, int z) const {
+    glUniform3i(getUniformLocation(name), x, y, z);
 }
 
 void Pipeline::setFloat(const std::string& name, float value) const {

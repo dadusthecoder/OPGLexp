@@ -3,6 +3,7 @@
 #include "Renderer/Scene.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Texture.h"
+#include "Renderer/DDGIVolume.h"
 #include "Editor.h"
 #include "Helpers/Logger.h"
 
@@ -201,35 +202,71 @@ void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer, lgt::Scene* 
 
     if (ImGui::CollapsingHeader("Renderer Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (renderer) {
-            int         currentMode = (int)renderer->getRenderMode();
-            const char* items[]     = {"Fill", "Wireframe", "Point"};
-            if (ImGui::Combo("Render Mode", &currentMode, items, IM_ARRAYSIZE(items))) {
-                renderer->setRenderMode((lgt::RenderMode)currentMode);
-            }
+            auto& ctx = renderer->getRenderContext();
+            
             ImGui::Checkbox("Visualize Tiles (Heatmap)", &renderer->visualizeTiles);
 
-            int debugMode = (int)renderer->getDebugMode();
-            const char* debugItems[] = {"Final Color", "Base Color", "Normal", "Emissive", "Normals Mapped"};
-            if (ImGui::Combo("PBR Debug Mode", &debugMode, debugItems, IM_ARRAYSIZE(debugItems))) {
-                renderer->setDebugMode((lgt::DebugMode)debugMode);
-            }
-            
-            ImGui::Separator();
-            int gbufDebug = renderer->getRenderContext().gBufferDebugView;
-            const char* gbufItems[] = {"Off (Final)", "Albedo", "Normal", "Emissive", "Velocity", "Depth", "SSAO"};
-            if (ImGui::Combo("G-Buffer Debug View", &gbufDebug, gbufItems, IM_ARRAYSIZE(gbufItems))) {
-                renderer->getRenderContext().gBufferDebugView = gbufDebug;
-            }
-
-            ImGui::Separator();
-            int shadowDebug = renderer->getRenderContext().shadowDebugMode;
-            const char* shadowItems[] = {
-                "Off", "World Pos", "View Pos", "Light Clip Pos", 
-                "Proj Coords", "Shadow UV", "Stored Depth", "Current Depth", 
-                "Cascade Index", "Raw Comparison", "Final Shadow"
+            const char* debugItems[] = {
+                "Final Output",         // 0
+                "Wireframe",            // 1
+                "Point Cloud",          // 2
+                "Base Color",           // 3
+                "World Normals",        // 4
+                "Emissive",             // 5
+                "Depth",                // 6
+                "Ambient Occlusion",    // 7
+                "DDGI Irradiance",      // 8
+                "DDGI Visibility",      // 9
+                "DDGI Probe Index",     // 10
+                "DDGI Trilinear",       // 11
+                "DDGI Direction",       // 12
+                "Shadow Cascades",      // 13
+                "Shadow Factor"         // 14
             };
-            if (ImGui::Combo("Shadow Debug View", &shadowDebug, shadowItems, IM_ARRAYSIZE(shadowItems))) {
-                renderer->getRenderContext().shadowDebugMode = shadowDebug;
+            
+            // Map the current state to the single dropdown index (approximate)
+            int currentDebugIdx = 0;
+            if (renderer->getRenderMode() == lgt::RenderMode::WIREFRAME) currentDebugIdx = 1;
+            else if (renderer->getRenderMode() == lgt::RenderMode::POINT) currentDebugIdx = 2;
+            else if (ctx.gBufferDebugView == 1) currentDebugIdx = 3;
+            else if (ctx.gBufferDebugView == 2) currentDebugIdx = 4;
+            else if (ctx.gBufferDebugView == 3) currentDebugIdx = 5;
+            else if (ctx.gBufferDebugView == 5) currentDebugIdx = 6;
+            else if (ctx.gBufferDebugView == 6) currentDebugIdx = 7;
+            else if (ctx.ddgiDebugMode == 1) currentDebugIdx = 8;
+            else if (ctx.ddgiDebugMode == 2) currentDebugIdx = 9;
+            else if (ctx.ddgiDebugMode == 3) currentDebugIdx = 10;
+            else if (ctx.ddgiDebugMode == 4) currentDebugIdx = 11;
+            else if (ctx.ddgiDebugMode == 5) currentDebugIdx = 12;
+            else if (ctx.shadowDebugMode == 8) currentDebugIdx = 13;
+            else if (ctx.shadowDebugMode == 10) currentDebugIdx = 14;
+            
+            if (ImGui::Combo("Global Debug View", &currentDebugIdx, debugItems, IM_ARRAYSIZE(debugItems))) {
+                // Reset all debug states
+                renderer->setRenderMode(lgt::RenderMode::FILL);
+                renderer->setDebugMode(lgt::DebugMode::FINAL_COLOR);
+                ctx.gBufferDebugView = 0;
+                ctx.shadowDebugMode = 0;
+                ctx.ddgiDebugMode = 0;
+                
+                // Apply the selected debug state
+                switch (currentDebugIdx) {
+                    case 0: /* Final */ break;
+                    case 1: renderer->setRenderMode(lgt::RenderMode::WIREFRAME); break;
+                    case 2: renderer->setRenderMode(lgt::RenderMode::POINT); break;
+                    case 3: ctx.gBufferDebugView = 1; break; // Albedo
+                    case 4: ctx.gBufferDebugView = 2; break; // Normals
+                    case 5: ctx.gBufferDebugView = 3; break; // Emissive
+                    case 6: ctx.gBufferDebugView = 5; break; // Depth
+                    case 7: ctx.gBufferDebugView = 6; break; // AO
+                    case 8: ctx.ddgiDebugMode = 1; break; // DDGI Irradiance
+                    case 9: ctx.ddgiDebugMode = 2; break; // DDGI Visibility
+                    case 10: ctx.ddgiDebugMode = 3; break; // DDGI Probe Index
+                    case 11: ctx.ddgiDebugMode = 4; break; // DDGI Trilinear
+                    case 12: ctx.ddgiDebugMode = 5; break; // DDGI Direction
+                    case 13: ctx.shadowDebugMode = 8; break; // Shadow Cascades
+                    case 14: ctx.shadowDebugMode = 10; break; // Shadow Factor
+                }
             }
         }
     }
@@ -252,14 +289,50 @@ void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer, lgt::Scene* 
         }
     }
 
-    if (renderer && ImGui::CollapsingHeader("SSAO (Ambient Occlusion)", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (renderer && ImGui::CollapsingHeader("Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto& ctx = renderer->getRenderContext();
-        ImGui::Checkbox("Enable SSAO", &ctx.ssao.enabled);
-        if (ctx.ssao.enabled) {
+        
+        const char* aoModes[] = { "Off", "SSAO", "RTAO" };
+        int currentAO = (int)ctx.aoMode;
+        if (ImGui::Combo("AO Mode", &currentAO, aoModes, 3)) {
+            ctx.aoMode = (lgt::RenderContext::AOMode)currentAO;
+        }
+
+        if (ctx.aoMode == lgt::RenderContext::AOMode::SSAO) {
             ImGui::SliderFloat("Radius", &ctx.ssao.radius, 0.01f, 2.0f);
             ImGui::SliderFloat("Bias", &ctx.ssao.bias, 0.0f, 0.1f);
             ImGui::SliderFloat("Intensity", &ctx.ssao.intensity, 0.0f, 5.0f);
             ImGui::SliderInt("Samples", &ctx.ssao.samples, 8, 64);
+        } else if (ctx.aoMode == lgt::RenderContext::AOMode::RTAO) {
+            ImGui::SliderFloat("Radius", &ctx.rtao.radius, 0.1f, 10.0f);
+            ImGui::SliderFloat("Intensity", &ctx.rtao.intensity, 0.1f, 5.0f);
+            ImGui::SliderFloat("Temporal Blend", &ctx.rtao.temporalBlend, 0.5f, 0.99f);
+        }
+    }
+
+    if (renderer && scene && ImGui::CollapsingHeader("Global Illumination (DDGI)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& ctx = renderer->getRenderContext();
+        ImGui::Checkbox("Enable DDGI", &ctx.ddgi.enabled);
+        
+        if (ctx.ddgi.enabled) {
+            const char* presets[] = { "Low (8x4x8)", "Medium (10x6x10)", "High (12x8x12)", "Ultra (16x10x16)" };
+            if (ImGui::Combo("Quality Preset", &ctx.ddgi.qualityPreset, presets, 4)) {
+                // Apply preset to all volumes
+                for (auto& vol : scene->GetProbeVolumes()) {
+                    if (vol) vol->ApplyPreset(ctx.ddgi.qualityPreset);
+                }
+            }
+            
+            ImGui::SliderFloat("GI Intensity", &ctx.ddgi.giIntensity, 0.0f, 5.0f);
+            ImGui::SliderFloat("GI Blend (DDGI vs IBL)", &ctx.ddgi.giBlend, 0.0f, 1.0f);
+            
+            if (ImGui::TreeNode("Advanced DDGI Settings")) {
+                ImGui::SliderFloat("Hysteresis", &ctx.ddgi.hysteresis, 0.8f, 0.99f);
+                ImGui::SliderFloat("Max Ray Distance", &ctx.ddgi.maxRayDist, 5.0f, 100.0f);
+                ImGui::SliderFloat("Normal Bias", &ctx.ddgi.normalBias, 0.01f, 1.0f);
+                ImGui::Checkbox("Visualize Probes", &ctx.ddgi.showProbes);
+                ImGui::TreePop();
+            }
         }
     }
 

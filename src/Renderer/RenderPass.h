@@ -159,6 +159,7 @@ struct RenderContext {
     // Debug
     DebugMode debugMode = DebugMode::FINAL_COLOR;
     int shadowDebugMode = 0; // 0=off, 1-10=instrumentation modes
+    int ddgiDebugMode = 0; // 0=off, 1-10=instrumentation modes
     bool visualizeTiles = false;
 };
 
@@ -196,6 +197,9 @@ public:
     // Non-copyable
     RenderGraph(const RenderGraph&)            = delete;
     RenderGraph& operator=(const RenderGraph&) = delete;
+    
+    RenderGraph(RenderGraph&&)            = default;
+    RenderGraph& operator=(RenderGraph&&) = default;
 
     /// Add a pass to the end of the pipeline
     template <typename T, typename... Args>

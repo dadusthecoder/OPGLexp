@@ -32,6 +32,7 @@
 #include "BloomPass.h"
 #include "SSAOPass.h"
 #include "SkyboxPass.h"
+
 #define SHADOW_WIDTH  2048
 #define SHADOW_HEIGHT 2048
 
@@ -47,7 +48,11 @@ class TAAPass;
 class ToneMapPass;
 class BloomPass;
 class SSAOPass;
+class RTAOPass;
+class DDGIPass;
 class SkyboxPass;
+struct GPUResources;
+class RayTracer;
 struct SceneNode;
 using RenderId = unsigned int;
 
@@ -265,14 +270,21 @@ private:
     RenderContext m_renderCtx;
     RenderGraph   m_renderGraph;
     
-    DeferredGeometryPass* m_geometryPass = nullptr;
+    // Direct pointers to passes we need to reconfigure or query
+    DeferredGeometryPass* m_geomPass = nullptr;
     LightCullingPass*     m_cullingPass  = nullptr;
     SSAOPass*             m_ssaoPass     = nullptr;
+    RTAOPass*             m_rtaoPass     = nullptr;
+    DDGIPass*             m_ddgiPass     = nullptr;
     DeferredLightingPass* m_lightingPass = nullptr;
     SkyboxPass*           m_skyboxPass   = nullptr;
     BloomPass*            m_bloomPass    = nullptr;
     ToneMapPass*          m_toneMapPass  = nullptr;
     TAAPass*              m_taaPass      = nullptr;
+
+    // Ray tracing shared infrastructure
+    std::unique_ptr<GPUResources> m_gpuResources;
+    std::unique_ptr<RayTracer>    m_rayTracer;
     // Helper methods
     static const char* getGLErrorString(GLenum error);
 

@@ -1,6 +1,8 @@
 #pragma once
 #include "RenderPass.h"
+#include "Scene.h"
 #include "Shader.h"
+#include "RayTracer.h"
 #include "RayTracer.h"
 #include "AccelerationStructure.h"
 #include "GPUResources.h"
@@ -25,8 +27,8 @@ public:
     ~RTAOPass() override = default;
 
     void Init(RenderContext& ctx) override {
-        m_traceShader   = new Pipeline("res/shaders/RTAO.comp");
-        m_denoiseShader = new Pipeline("res/shaders/RTAODenoise.comp");
+        m_traceShader   = new Pipeline("res/shaders/RTAO.comp", ShaderType::COMPUTESHADER);
+        m_denoiseShader = new Pipeline("res/shaders/RTAODenoise.comp", ShaderType::COMPUTESHADER);
 
         if (!m_traceShader || !m_traceShader->isValid())
             CORE_ERROR("RTAOPass: Failed to compile RTAO.comp");
@@ -50,14 +52,13 @@ public:
         if (!m_denoiseShader || !m_denoiseShader->isValid()) return;
         if (!ctx.gpuResources) return;
 
-        auto* accel = ctx.scene ? ctx.scene->GetAccelerationStructure() : nullptr;
-        if (!accel || !accel->IsBuilt()) return;
+        auto* bvh = ctx.scene ? ctx.scene->GetAccelerationStructure() : nullptr;
+        if (bvh && bvh->IsBuilt()) {
+            bvh->Bind();
+        }
 
         // --- Step 1: Trace RTAO rays ---
         m_traceShader->use();
-
-        // Bind BVH SSBOs
-        accel->Bind();
 
         // Bind output image
         glBindImageTexture(0, m_rawAOTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R16F);
@@ -91,9 +92,9 @@ public:
         int groupsY = (m_halfHeight + 7) / 8;
         m_traceShader->dispatch(groupsX, groupsY, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-        accel->Unbind();
-
+        if (bvh && bvh->IsBuilt()) {
+            bvh->Unbind();
+        }
         // --- Step 2: Temporal accumulation ---
         // (For now, we skip explicit temporal accumulation and rely on
         //  the denoise pass. Full temporal accumulation can be added

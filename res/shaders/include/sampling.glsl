@@ -24,12 +24,12 @@ vec3 UniformSphere(vec2 xi) {
 }
 
 // Generate deterministic points on a sphere (useful for DDGI)
-vec2 SphericalFibonacci(int index, int totalSamples) {
+vec3 SphericalFibonacci(uint index, uint totalSamples) {
     float b = (sqrt(5.0) * 0.5 + 0.5);
     float phi = 2.0 * PI * fract(float(index) / b);
     float cosTheta = 1.0 - (2.0 * float(index) + 1.0) / float(totalSamples);
     float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    return vec2(phi, cosTheta);
+    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 }
 
 // Reverses the bits of a 32-bit integer for Van der Corput sequence

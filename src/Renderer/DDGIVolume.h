@@ -94,6 +94,16 @@ public:
         return totalRows * (IRRADIANCE_TEXELS + 2 * BORDER);
     }
 
+    int DepthAtlasWidth() const {
+        return probeCount.x * (DEPTH_TEXELS + 2 * BORDER);
+    }
+
+    int DepthAtlasHeight() const {
+        int probesPerRow = probeCount.x;
+        int totalRows = probeCount.y * probeCount.z;
+        return totalRows * (DEPTH_TEXELS + 2 * BORDER);
+    }
+
     // Apply quality preset
     void ApplyPreset(int preset) {
         switch (preset) {
@@ -137,9 +147,23 @@ private:
                         GL_RGBA, GL_FLOAT, zeros.data());
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        // --- Depth Atlas (RG16F) — future ---
-        // For now, skip depth atlas. Chebyshev visibility test
-        // will be added in a follow-up pass.
+        // --- Depth Atlas (RG16F) ---
+        int depthAtlasW = DepthAtlasWidth();
+        int depthAtlasH = DepthAtlasHeight();
+
+        glGenTextures(1, &depthAtlas);
+        glBindTexture(GL_TEXTURE_2D, depthAtlas);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, depthAtlasW, depthAtlasH, 0,
+                     GL_RG, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        std::vector<float> depthZeros(depthAtlasW * depthAtlasH * 2, 0.0f);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, depthAtlasW, depthAtlasH,
+                        GL_RG, GL_FLOAT, depthZeros.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         // --- Ray Data SSBO ---
         // Each probe traces raysPerProbe rays. Each ray stores:

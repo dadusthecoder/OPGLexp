@@ -83,6 +83,8 @@ public:
     // Modern uniform setting methods
     void setBool(const std::string& name, bool value) const;
     void setInt(const std::string& name, int value) const;
+    void setIVec3(const std::string& name, const glm::ivec3& value) const;
+    void setIVec3(const std::string& name, int x, int y, int z) const;
     void setFloat(const std::string& name, float value) const;
     void setVec2(const std::string& name, const glm::vec2& value) const;
     void setVec2(const std::string& name, float x, float y) const;

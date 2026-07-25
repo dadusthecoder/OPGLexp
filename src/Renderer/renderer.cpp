@@ -16,6 +16,10 @@
 #include "BloomPass.h"
 #include "SSAOPass.h"
 #include "SkyboxPass.h"
+#include "RTAOPass.h"
+#include "DDGIPass.h"
+#include "RayTracer.h"
+#include "GPUResources.h"
 
 //----------------------------------------------------------------------
 namespace lgt {
@@ -247,10 +251,20 @@ void Renderer::init() {
     CreateHDRFramebuffer(m_renderCtx, 1920, 1080);
     CreateFullscreenQuad(m_renderCtx);
 
+    // Initialize ray tracing infrastructure
+    m_gpuResources = std::make_unique<GPUResources>();
+    m_gpuResources->Init(1920, 1080);
+    m_renderCtx.gpuResources = m_gpuResources.get();
+
+    m_rayTracer = std::make_unique<RayTracer>();
+    m_rayTracer->Init();
+
     // Initialize render passes
-    m_geometryPass = m_renderGraph.AddPass<DeferredGeometryPass>();
+    m_geomPass     = m_renderGraph.AddPass<DeferredGeometryPass>();
     m_cullingPass  = m_renderGraph.AddPass<LightCullingPass>();
     m_ssaoPass     = m_renderGraph.AddPass<SSAOPass>();
+    m_rtaoPass     = m_renderGraph.AddPass<RTAOPass>();
+    m_ddgiPass     = m_renderGraph.AddPass<DDGIPass>();
     m_lightingPass = m_renderGraph.AddPass<DeferredLightingPass>();
     m_skyboxPass   = m_renderGraph.AddPass<SkyboxPass>();
     m_taaPass      = m_renderGraph.AddPass<TAAPass>();
@@ -277,6 +291,9 @@ void Renderer::shutdown() {
         glDeleteVertexArrays(1, &m_renderCtx.quadVAO);
         glDeleteBuffers(1, &m_renderCtx.quadVBO);
     }
+
+    if (m_rayTracer) m_rayTracer->Shutdown();
+    if (m_gpuResources) m_gpuResources->Shutdown();
 
     delete testPipeline;
     delete depthPrepassShader;
@@ -825,15 +842,24 @@ void Renderer::render(class Grid* grid, float deltaTime) {
     // --- Update render context ---
     m_renderCtx.camera        = camera_;
     m_renderCtx.view          = camera_->GetViewMatrix();
+
+    if (m_gpuResources) {
+        m_gpuResources->temporal.BeginFrame(m_renderCtx.view, camera_->GetProjectionMatrix());
+    }
     
     // TAA Jitter
     glm::mat4 projection = camera_->GetProjectionMatrix();
-    // Always store the clean, unjittered projection — used for depth reconstruction and shadows.
-    // Shadow coordinates must be computed from world-space positions that are reconstructed
-    // using the unjittered inverse projection; using the jittered one shifts the reconstructed
-    // position by a sub-pixel amount that changes every frame, breaking shadow comparisons.
     m_renderCtx.unjitteredProj = projection;
-    if (m_renderCtx.taa.enabled) {
+    
+    // Disable TAA if any debug mode is active to prevent ghosting of debug colors
+    bool debugModeActive = (m_currentRenderMode != RenderMode::FILL) || 
+                           m_renderCtx.gBufferDebugView != 0 || 
+                           m_renderCtx.shadowDebugMode != 0 || 
+                           m_renderCtx.ddgiDebugMode != 0;
+
+    bool useTAA = m_renderCtx.taa.enabled && !debugModeActive;
+
+    if (useTAA) {
         m_renderCtx.taaFrameIndex = (m_renderCtx.taaFrameIndex + 1) % 2;
         m_renderCtx.taaJitterIndex = (m_renderCtx.taaJitterIndex + 1) % 16;
         
@@ -882,15 +908,24 @@ void Renderer::render(class Grid* grid, float deltaTime) {
     }
 
     // 1. Deferred Geometry Pass (renders to G-Buffer)
-    if (m_geometryPass) m_geometryPass->Execute(m_renderCtx);
+    if (m_geomPass) m_geomPass->Execute(m_renderCtx);
 
     // 2. Light Culling Compute Pass (reads G-Buffer Depth)
     if (m_cullingPass) m_cullingPass->Execute(m_renderCtx);
 
-    // 3. SSAO Pass (reads G-Buffer Depth + Normal)
-    if (m_ssaoPass) m_ssaoPass->Execute(m_renderCtx);
+    // 3. Ambient Occlusion Pass
+    if (m_renderCtx.aoMode == RenderContext::AOMode::SSAO) {
+        if (m_ssaoPass) m_ssaoPass->Execute(m_renderCtx);
+    } else if (m_renderCtx.aoMode == RenderContext::AOMode::RTAO) {
+        if (m_rtaoPass) m_rtaoPass->Execute(m_renderCtx);
+    }
 
-    // 4. Deferred Lighting Pass (reads G-Buffer, writes to HDR FBO)
+    // 4. DDGI Pass
+    if (m_renderCtx.ddgi.enabled && m_ddgiPass) {
+        m_ddgiPass->Execute(m_renderCtx);
+    }
+
+    // 5. Deferred Lighting Pass (reads G-Buffer + IBL + AO + DDGI + ShadowMap)
     if (m_lightingPass) m_lightingPass->Execute(m_renderCtx);
 
     // Bind HDR FBO to draw forward elements

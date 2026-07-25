@@ -1,4 +1,5 @@
 #version 460 core
+#shader Compute
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -14,6 +15,7 @@ uniform int u_FrameCounter;
 uniform int u_RaysPerProbe;
 uniform vec3 u_SunDirection;
 uniform vec3 u_SunColor;
+uniform samplerCube u_Skybox;
 
 struct ProbeRayData {
     vec4 radiance;   // xyz = radiance at hit point, w = unused
@@ -77,19 +79,23 @@ void main() {
     uint probeIndex = gl_WorkGroupID.x;
     uint rayIndex = gl_LocalInvocationIndex;
     
+    if (rayIndex >= uint(u_RaysPerProbe)) {
+        return;
+    }
+    
     // Calculate 3D grid coordinates of the probe
-    uint probeX = probeIndex % u_ProbeCount.x;
-    uint probeY = (probeIndex / u_ProbeCount.x) % u_ProbeCount.y;
-    uint probeZ = probeIndex / (u_ProbeCount.x * u_ProbeCount.y);
+    uint probeX = probeIndex % uint(u_ProbeCount.x);
+    uint probeY = (probeIndex / uint(u_ProbeCount.x)) % uint(u_ProbeCount.y);
+    uint probeZ = probeIndex / uint(u_ProbeCount.x * u_ProbeCount.y);
     
     vec3 probePos = u_ProbeOrigin + vec3(probeX, probeY, probeZ) * u_ProbeSpacing;
     
     // Generate random rotation per probe per frame
-    uint seed = WangHash(probeIndex ^ (u_FrameCounter * 1973));
+    uint seed = WangHash(probeIndex ^ uint(u_FrameCounter * 1973));
     mat3 rot = RandomRotationMatrix(seed);
     
     // Generate ray direction
-    vec3 rayDir = SphericalFibonacci(rayIndex, u_RaysPerProbe);
+    vec3 rayDir = SphericalFibonacci(rayIndex, uint(u_RaysPerProbe));
     rayDir = rot * rayDir;
     
     // Trace closest hit
@@ -99,35 +105,34 @@ void main() {
     float hitDistance = -1.0;
     
     if (hit.hit) {
+        // We hit geometry. Evaluate direct lighting (Sun)
+        vec3 hitAlbedo = vec3(0.8); // Default gray approximation
+        
+        vec3 sunDir = normalize(u_SunDirection); 
+        vec3 sunColor = u_SunColor; 
+        
+        float NdotL = max(0.0, dot(hit.normal, sunDir));
+        
+        // Simple AnyHit shadow trace towards the sun
+        vec3 shadowRayOrigin = hit.position + hit.normal * 0.05;
+        bool shadowed = TraceAnyHit(shadowRayOrigin, sunDir, 100.0);
+        
+        if (!shadowed) {
+            radiance = hitAlbedo * NdotL * sunColor;
+        } else {
+            // Ambient light from sky to prevent pitch black shadowed bounce
+            radiance = hitAlbedo * texture(u_Skybox, hit.normal).rgb * 0.1; 
+        }
+        
         hitDistance = hit.distance;
-        
-        // Simple direct lighting
-        vec3 N = hit.normal;
-        vec3 L = normalize(u_SunDirection);
-        float NdotL = max(dot(N, L), 0.0);
-        
-        vec3 albedo = vec3(0.5); // Default grey albedo
-        
-        // Shadow ray
-        bool inShadow = false;
-        if (NdotL > 0.0) {
-            // Bias hit position slightly along normal to avoid self-intersection
-            vec3 shadowOrigin = hit.position + N * 0.001;
-            // Distance is large for directional light
-            inShadow = TraceAnyHit(shadowOrigin, L, 10000.0);
-        }
-        
-        if (!inShadow) {
-            radiance = albedo * u_SunColor * NdotL;
-        }
     } else {
         // Miss: sky color
-        radiance = vec3(0.5, 0.7, 1.0) * 0.3;
+        radiance = texture(u_Skybox, rayDir).rgb * 2.0;
         // Keep hitDistance as -1.0 to indicate a miss
     }
     
     // Store result
-    uint writeIndex = probeIndex * u_RaysPerProbe + rayIndex;
+    uint writeIndex = probeIndex * uint(u_RaysPerProbe) + rayIndex;
     rayData[writeIndex].radiance = vec4(radiance, 0.0);
     rayData[writeIndex].direction = vec4(rayDir, hitDistance);
 }

@@ -7,9 +7,9 @@ namespace lgt {
 
 struct BVHNodeGPU {
     float minX, minY, minZ;
-    int   leftFirst;     // If leaf: first triangle index. If inner: left child index.
+    int   leftFirst;
     float maxX, maxY, maxZ;
-    int   count;         // If > 0: leaf with 'count' triangles. If 0: inner node.
+    int   count;
 };
 
 class StaticBVH : public AccelerationStructure {
