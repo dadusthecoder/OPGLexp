@@ -3,15 +3,15 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-struct PointLight {
+struct Light {
     vec4 position;
     vec4 color;
-    float radius;
-    float padding[3];
+    vec4 direction;
+    vec4 params;
 };
 
 layout(std430, binding = 1) readonly buffer LightBuffer {
-    PointLight lights[];
+    Light lights[];
 };
 
 layout(std430, binding = 2) writeonly buffer VisibleLightIndicesBuffer {
@@ -23,6 +23,8 @@ uniform vec2 screenSize;
 uniform mat4 u_View;
 uniform mat4 u_Projection;
 uniform int lightCount;
+uniform float u_zNear;
+uniform float u_zFar;
 
 shared uint minDepthInt;
 shared uint maxDepthInt;
@@ -48,10 +50,8 @@ void main() {
     vec2 tc = vec2(pixelPos) / screenSize;
     float depth = texture(depthMap, tc).r;
     
-    // Linearize depth
-    float zNear = 0.1; // Hardcoded for now, should be uniform if dynamic
-    float zFar = 1000.0;
-    float linearDepth = (2.0 * zNear * zFar) / (zFar + zNear - (2.0 * depth - 1.0) * (zFar - zNear));
+    // Linearize depth using camera uniforms
+    float linearDepth = (2.0 * u_zNear * u_zFar) / (u_zFar + u_zNear - (2.0 * depth - 1.0) * (u_zFar - u_zNear));
     
     uint depthInt = floatBitsToUint(linearDepth);
     
@@ -94,16 +94,20 @@ void main() {
         uint lightIndex = i * threadCount + gl_LocalInvocationIndex;
         if (lightIndex >= lightCount) break;
         
-        PointLight light = lights[lightIndex];
-        vec4 viewLightPos = u_View * vec4(light.position.xyz, 1.0);
-        float radius = light.radius;
+        Light light = lights[lightIndex];
         
         bool inFrustum = true;
-        for (int j = 0; j < 6; j++) {
-            float d = dot(frustumPlanes[j], viewLightPos);
-            if (d < -radius) {
-                inFrustum = false;
-                break;
+        float radius = light.direction.w;
+        vec4 viewLightPos = u_View * vec4(light.position.xyz, 1.0);
+
+        // Frustum cull only if not a directional light
+        if (light.position.w != 1.0) {
+            for (int j = 0; j < 6; j++) {
+                float dist = dot(frustumPlanes[j], viewLightPos) + radius;
+                if (dist < 0.0) {
+                    inFrustum = false;
+                    break;
+                }
             }
         }
         

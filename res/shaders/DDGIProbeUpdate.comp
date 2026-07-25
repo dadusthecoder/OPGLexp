@@ -1,0 +1,86 @@
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "include/sampling.glsl"
+
+uniform ivec3 u_ProbeCount;
+uniform int u_RaysPerProbe;
+uniform float u_Hysteresis;
+uniform int u_IrradianceTexSize; // usually 8
+
+layout(rgba16f, binding = 0) uniform image2D u_IrradianceAtlas;
+
+struct ProbeRayData {
+    vec4 radiance;   // xyz = radiance at hit point, w = unused
+    vec4 direction;  // xyz = ray direction, w = hit distance (-1 if miss)
+};
+
+layout(std430, binding = 6) readonly buffer ProbeRayDataBuffer {
+    ProbeRayData rayData[];
+};
+
+void main() {
+    ivec3 probeCoords = ivec3(gl_WorkGroupID);
+    uint probeLinearIndex = probeCoords.z * (u_ProbeCount.x * u_ProbeCount.y) + 
+                            probeCoords.y * u_ProbeCount.x + 
+                            probeCoords.x;
+                            
+    ivec2 texelCoords = ivec2(gl_LocalInvocationID.xy);
+    
+    // Calculate atlas position for this probe
+    // Add 2 to the size for the 1-pixel border on each side
+    int probeSizeWithBorder = u_IrradianceTexSize + 2;
+    
+    // Number of probes per row in the atlas
+    int probesPerRow = u_ProbeCount.x;
+    
+    int atlasX = (int(probeLinearIndex) % probesPerRow) * probeSizeWithBorder + 1;
+    int atlasY = (int(probeLinearIndex) / probesPerRow) * probeSizeWithBorder + 1;
+    
+    ivec2 globalTexelCoords = ivec2(atlasX, atlasY) + texelCoords;
+    
+    // Normalize texel coordinates to [-1, 1] range for octahedral mapping
+    vec2 normalizedCoords = (vec2(texelCoords) + 0.5) / float(u_IrradianceTexSize);
+    vec2 octCoords = normalizedCoords * 2.0 - 1.0;
+    
+    // Decode octahedral coordinates to direction vector
+    vec3 texelDirection = OctahedralDecode(octCoords);
+    
+    vec3 accumulatedRadiance = vec3(0.0);
+    float totalWeight = 0.0;
+    
+    // Accumulate irradiance from all rays of this probe
+    uint rayDataOffset = probeLinearIndex * u_RaysPerProbe;
+    
+    for (int i = 0; i < u_RaysPerProbe; i++) {
+        vec3 rayDir = rayData[rayDataOffset + i].direction.xyz;
+        vec3 rayRadiance = rayData[rayDataOffset + i].radiance.xyz;
+        
+        // Weight by cosine of angle between texel direction and ray direction
+        // Uses smoothstep to avoid harsh cutoffs at perpendicular angles, though max is standard
+        float weight = max(0.0, dot(texelDirection, rayDir));
+        
+        accumulatedRadiance += rayRadiance * weight;
+        totalWeight += weight;
+    }
+    
+    vec3 newIrradiance = vec3(0.0);
+    if (totalWeight > 0.0001) {
+        newIrradiance = accumulatedRadiance / totalWeight;
+    }
+    
+    // Blend with previous irradiance using hysteresis
+    vec4 previousIrradiance = imageLoad(u_IrradianceAtlas, globalTexelCoords);
+    
+    // Handle initial state (if previous irradiance is essentially uninitialized)
+    if (u_Hysteresis > 0.0) {
+        newIrradiance = mix(newIrradiance, previousIrradiance.rgb, u_Hysteresis);
+    }
+    
+    // Store the blended irradiance back to the atlas
+    imageStore(u_IrradianceAtlas, globalTexelCoords, vec4(newIrradiance, 1.0));
+    
+    // Note: The 1px border needs to be updated in a separate pass or step 
+    // to handle wrapping correctly across the octahedral edges.
+}

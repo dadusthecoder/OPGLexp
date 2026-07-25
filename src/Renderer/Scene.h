@@ -14,11 +14,19 @@
 
 namespace lgt {
 
-struct PointLight {
-    glm::vec4 position; // w is padding or could be radius (using separate radius for clarity)
-    glm::vec4 color;    // w is intensity
-    float     radius;
-    float     padding[3];
+class AccelerationStructure;
+
+enum class LightType {
+    POINT = 0,
+    DIRECTIONAL = 1,
+    SPOT = 2
+};
+
+struct Light {
+    glm::vec4 position; // xyz = position, w = type (0: point, 1: directional, 2: spot)
+    glm::vec4 color;    // rgb = color, a = intensity
+    glm::vec4 direction;// xyz = direction (for directional/spot), w = radius/range
+    glm::vec4 params;   // x = inner cutoff (cos angle), y = outer cutoff (cos angle), z,w = padding
 };
 
 struct SceneNode {
@@ -59,12 +67,25 @@ public:
     void Update();
     void Clear();
     void RemoveNode(SceneNode* node);
+
+    // Acceleration structure (BVH) for ray tracing — scene-owned data
+    void BuildAccelerationStructure();
+    AccelerationStructure* GetAccelerationStructure() { return m_accel.get(); }
+    const AccelerationStructure* GetAccelerationStructure() const { return m_accel.get(); }
+    bool IsAccelDirty() const { return m_accelDirty; }
+    void MarkAccelDirty() { m_accelDirty = true; }
+    void ClearAccelDirty() { m_accelDirty = false; }
     void CleanUpMaterials();
 
     const std::vector<std::shared_ptr<SceneNode>>& getRootNodes() const { return m_RootNodes; }
     std::vector<MaterialGPU>&                      getMaterialBuffer() { return m_materialBuffer; };
-    std::vector<PointLight>&                       getLights() { return m_lights; }
-    void                                           addLight(const PointLight& light) { m_lights.push_back(light); }
+    std::vector<Light>&                       getLights() { return m_lights; }
+    void                                      addLight(const Light& light) { m_lights.push_back(light); }
+    
+    void                                      LoadSkybox(const std::string& path) { m_skyboxPath = path; m_skyboxDirty = true; }
+    std::string                               GetSkyboxPath() const { return m_skyboxPath; }
+    bool                                      IsSkyboxDirty() const { return m_skyboxDirty; }
+    void                                      ClearSkyboxDirty() { m_skyboxDirty = false; }
 
 private:
     void                       processMaterials(const aiScene* scene, const std::string& dir);
@@ -72,8 +93,14 @@ private:
     Mesh                       processMesh(aiMesh* mesh, const std::vector<uint32_t>& materialMap);
 
     std::vector<MaterialGPU>                m_materialBuffer;
-    std::vector<PointLight>                 m_lights;
+    std::vector<Light>                      m_lights;
     std::vector<std::shared_ptr<SceneNode>> m_RootNodes;
+    std::string                             m_skyboxPath = "";
+    bool                                    m_skyboxDirty = false;
+
+    // Acceleration structure for ray tracing
+    std::unique_ptr<AccelerationStructure>  m_accel;
+    bool                                    m_accelDirty = true;
 };
 
 } // namespace lgt

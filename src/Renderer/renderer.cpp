@@ -1,9 +1,21 @@
 #include "Renderer.h"
 #include "Helpers/Logger.h"
+#include "UI/Editor.h"
 #include "Scene.h"
 #include "Camera.h"
+#include "EnvironmentMap.h"
 #include <chrono>
 #include <iostream>
+#include <glm/gtc/type_ptr.hpp>
+
+#include "DeferredGeometryPass.h"
+#include "LightCullingPass.h"
+#include "DeferredLightingPass.h"
+#include "TAAPass.h"
+#include "ToneMapPass.h"
+#include "BloomPass.h"
+#include "SSAOPass.h"
+#include "SkyboxPass.h"
 
 //----------------------------------------------------------------------
 namespace lgt {
@@ -76,6 +88,20 @@ void Grid::setupBuffers() {
 
     glBindVertexArray(0);
 }
+
+
+
+void Renderer::loadSkybox(const std::string& hdrPath) {
+    if (!m_envMap) {
+        m_envMap = std::make_unique<EnvironmentMap>();
+    }
+    if (m_envMap->LoadHDR(hdrPath)) {
+        m_renderCtx.envCubemap = m_envMap->GetEnvironmentCubemap();
+        m_renderCtx.hasIBL = true;
+        CORE_INFO("Skybox and IBL maps loaded from: {}", hdrPath);
+    }
+}
+
 
 void Grid::render(Camera& cam, float deltaTime) {
     if (!m_gridShader || !m_gridShader->isValid())
@@ -152,26 +178,118 @@ Renderer::Renderer(Scene* scene, Camera* camera)
 Renderer::~Renderer() {}
 
 void Renderer::init() {
-    testPipeline = new Pipeline("res/shaders/PBR.shader");
+    testPipeline       = new Pipeline("res/shaders/PBR.shader");
     depthPrepassShader = new Pipeline("res/shaders/DepthPrepass.shader");
     lightCullingShader = new Pipeline("res/shaders/LightCulling.comp");
+    lightGizmoShader   = new Pipeline("res/shaders/LightGizmo.shader");
+    selectionShader    = new Pipeline("res/shaders/Selection.shader");
+    outlineShader      = new Pipeline("res/shaders/Outline.shader");
+
+    glGenFramebuffers(1, &m_selectionFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_selectionFBO);
+    glGenTextures(1, &m_selectionTexture);
+    glBindTexture(GL_TEXTURE_2D, m_selectionTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, 1920, 1080, 0, GL_RED_INTEGER, GL_INT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_selectionTexture, 0);
+
+    glGenTextures(1, &m_selectionDepth);
+    glBindTexture(GL_TEXTURE_2D, m_selectionDepth);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, 1920, 1080, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_selectionDepth, 0);
+    GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &drawBuf);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    
+    // Create reusable empty VAO for attribute-less draws (gizmos)
+    glGenVertexArrays(1, &m_emptyVAO);
+    
+    // Load icons
+    int width, height, channels;
+    unsigned char* data = stbi_load("res/textures/lightbulb.jpg", &width, &height, &channels, 4);
+    if (data) {
+        glGenTextures(1, &m_PointLightIcon);
+        glBindTexture(GL_TEXTURE_2D, m_PointLightIcon);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        stbi_image_free(data);
+    }
+    data = stbi_load("res/textures/sun.jpg", &width, &height, &channels, 4);
+    if (data) {
+        glGenTextures(1, &m_DirLightIcon);
+        glBindTexture(GL_TEXTURE_2D, m_DirLightIcon);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        stbi_image_free(data);
+    }
+    
+    // CSM
+    shadowShader = new Pipeline("res/shaders/Shadow.shader");
+    m_shadowCascadeLevels = { 45.0f, 25.0f, 50.0f }; // cascade far planes (using 45.0f just for first cascade example, wait I should use actual far planes)
+    m_shadowCascadeLevels = { 10.0f, 25.0f, 50.0f };
+    m_csmBuffer = std::make_unique<CascadedShadowBuffer>(2048, 2048, 4);
     
     createMaterailBuffer(g_MaterialGPU.size());
     uploadMaterialBuffer(g_MaterialGPU.data(), g_MaterialGPU.size());
 
     // Initially setup for standard 1920x1080, will be updated on resize
     setupForwardPlus(1920, 1080);
+
+    // --- Deferred Pipeline & Post-Processing ---
+    CreateGBuffer(m_renderCtx, 1920, 1080);
+    CreateHDRFramebuffer(m_renderCtx, 1920, 1080);
+    CreateFullscreenQuad(m_renderCtx);
+
+    // Initialize render passes
+    m_geometryPass = m_renderGraph.AddPass<DeferredGeometryPass>();
+    m_cullingPass  = m_renderGraph.AddPass<LightCullingPass>();
+    m_ssaoPass     = m_renderGraph.AddPass<SSAOPass>();
+    m_lightingPass = m_renderGraph.AddPass<DeferredLightingPass>();
+    m_skyboxPass   = m_renderGraph.AddPass<SkyboxPass>();
+    m_taaPass      = m_renderGraph.AddPass<TAAPass>();
+    m_bloomPass    = m_renderGraph.AddPass<BloomPass>();
+    m_toneMapPass  = m_renderGraph.AddPass<ToneMapPass>();
+
+    m_renderGraph.Init(m_renderCtx);
+    m_renderGraph.Resize(m_renderCtx, 1920, 1080);
+
+    CORE_INFO("Deferred Pipeline initialized (G-Buffer + PBR + SSAO + Bloom + ToneMap)");
 }
 
 void Renderer::shutdown() {
+    // Shutdown post-processing pipeline
+    m_renderGraph.Shutdown();
+
+    // Clean up HDR FBO
+    if (m_renderCtx.hdrFBO != 0) {
+        glDeleteFramebuffers(1, &m_renderCtx.hdrFBO);
+        glDeleteTextures(1, &m_renderCtx.hdrTexture);
+        glDeleteRenderbuffers(1, &m_renderCtx.hdrDepthRBO);
+    }
+    if (m_renderCtx.quadVAO != 0) {
+        glDeleteVertexArrays(1, &m_renderCtx.quadVAO);
+        glDeleteBuffers(1, &m_renderCtx.quadVBO);
+    }
+
     delete testPipeline;
     delete depthPrepassShader;
     delete lightCullingShader;
+    delete lightGizmoShader;
+    delete selectionShader;
+    delete outlineShader;
+    delete shadowShader;
 
     if (m_lightsSSBO != 0) glDeleteBuffers(1, &m_lightsSSBO);
     if (m_visibleLightIndicesSSBO != 0) glDeleteBuffers(1, &m_visibleLightIndicesSSBO);
-    if (m_depthMapFBO != 0) glDeleteFramebuffers(1, &m_depthMapFBO);
-    if (m_depthMap != 0) glDeleteTextures(1, &m_depthMap);
+    if (m_depthMapFBO != 0) glDeleteFramebuffers(1, &m_depthMapFBO); m_depthMapFBO = 0;
+    if (m_depthMap != 0) glDeleteTextures(1, &m_depthMap); m_depthMap = 0;
 }
 
 void Renderer::GLClearError() {
@@ -272,6 +390,11 @@ void Renderer::setViewport(int width, int height) {
     if (width > 0 && height > 0) {
         if (width != m_viewportWidth || height != m_viewportHeight) {
             setupForwardPlus(width, height);
+
+            // Resize Deferred pipeline
+            CreateGBuffer(m_renderCtx, width, height);
+            CreateHDRFramebuffer(m_renderCtx, width, height);
+            m_renderGraph.Resize(m_renderCtx, width, height);
         }
         GlCall(glViewport(0, 0, width, height));
     }
@@ -458,6 +581,74 @@ DepthBuffer::~DepthBuffer() {
     GlCall(glDeleteTextures(1, &m_textureId));
 }
 
+//-------------------------------------------------------
+
+CascadedShadowBuffer::CascadedShadowBuffer(int width, int height, int cascadeCount)
+    : m_width(width), m_height(height) {
+    GlCall(glGenFramebuffers(1, &m_BufferId));
+    printf("Created CSM Buffer FBO: %d\n", (int)m_BufferId);
+
+    GlCall(glGenTextures(1, &m_textureId));
+    GlCall(glBindTexture(GL_TEXTURE_2D_ARRAY, m_textureId));
+    GlCall(glTexImage3D(
+        GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F,
+        width, height, cascadeCount, 0,
+        GL_DEPTH_COMPONENT, GL_FLOAT, nullptr));
+
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE));
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL));
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER));
+    GlCall(glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER));
+    float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    GlCall(glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, borderColor));
+
+    GlCall(glBindFramebuffer(GL_FRAMEBUFFER, m_BufferId));
+    GlCall(glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_textureId, 0));
+    GlCall(glDrawBuffer(GL_NONE));
+    GlCall(glReadBuffer(GL_NONE));
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        CORE_ERROR("ERROR: CSM Framebuffer not complete!");
+    }
+    GlCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+}
+
+CascadedShadowBuffer::~CascadedShadowBuffer() {
+    printf("Destroying CSM Buffer!\n");
+    GlCall(glDeleteFramebuffers(1, &m_BufferId));
+    GlCall(glDeleteTextures(1, &m_textureId));
+}
+
+void CascadedShadowBuffer::Bind() {
+    GlCall(glBindFramebuffer(GL_FRAMEBUFFER, m_BufferId));
+    GlCall(glViewport(0, 0, m_width, m_height));
+}
+
+void CascadedShadowBuffer::UnBind() {
+    GlCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+}
+
+void CascadedShadowBuffer::BindForWriting(int layer) {
+    GlCall(glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_textureId, 0, layer));
+}
+
+void CascadedShadowBuffer::BindTex(unsigned int unit) {
+    GlCall(glActiveTexture(GL_TEXTURE0 + unit));
+    GlCall(glBindTexture(GL_TEXTURE_2D_ARRAY, m_textureId));
+}
+
+void CascadedShadowBuffer::UnBindTex() {
+    GlCall(glBindTexture(GL_TEXTURE_2D_ARRAY, 0));
+}
+
+RenderId CascadedShadowBuffer::GetTextureId() {
+    return m_textureId;
+}
+
+//-------------------------------------------------------
+
 void DepthBuffer::Use() {
     GlCall(glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT));
     GlCall(glBindFramebuffer(GL_FRAMEBUFFER, m_BufferId));
@@ -486,7 +677,13 @@ RenderId DepthBuffer::GetTextureId() {
     return m_textureId;
 }
 
-void Renderer::render() {
+void Renderer::render(class Grid* grid, float deltaTime) {
+    // 0. Hot Reload Shaders (if modified)
+    if (testPipeline) testPipeline->reloadIfModified();
+    if (depthPrepassShader) depthPrepassShader->reloadIfModified();
+    if (lightCullingShader) lightCullingShader->reloadIfModified();
+    if (lightGizmoShader) lightGizmoShader->reloadIfModified();
+    
     if (!scene_) {
         CORE_ERROR("No scene available");
         return;
@@ -506,50 +703,296 @@ void Renderer::render() {
         }
     }
 
+    // --- SELECTION PASS ---
+    if (m_selectionFBO != 0 && selectionShader) {
+        GLint currentFBO;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &currentFBO);
+        
+        GLboolean blendEnabled = glIsEnabled(GL_BLEND);
+        GLboolean ditherEnabled = glIsEnabled(GL_DITHER);
+        glDisable(GL_BLEND);
+        glDisable(GL_DITHER);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_selectionFBO);
+        glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+        
+        // Bind selection shader FIRST, before any GL draw/clear ops on integer FBO
+        selectionShader->use();
+        selectionShader->useWithCamera(*camera_);
+        
+        int clearValue = -1;
+        glClearBufferiv(GL_COLOR, 0, &clearValue);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        
+        std::vector<SceneNode*> selectableNodes;
+        int currentID = 0;
+        
+        std::function<void(SceneNode*)> renderNodeSelection = [&](SceneNode* node) {
+            selectableNodes.push_back(node);
+            int nodeID = currentID++;
+            selectionShader->setInt("u_EntityID", nodeID);
+            selectionShader->setMat4("u_Model", node->globalTransform);
+            
+            for (auto& mesh : node->meshes) {
+                glBindVertexArray(mesh.vao);
+                glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.indexCount), GL_UNSIGNED_INT, 0);
+            }
+            
+            for (auto& child : node->children) {
+                renderNodeSelection(child.get());
+            }
+        };
+        
+        for (auto& root : scene_->getRootNodes()) {
+            renderNodeSelection(root.get());
+        }
+        
+        // Draw lights for selection
+        // We reuse LightGizmo shader since it already draws 6 vertices per light, 
+        // wait, we can just use selectionShader with a small quad, but it's simpler 
+        // to use lightGizmoShader with an ID output if we modify it...
+        // Actually, just drawing quads with SelectionShader:
+        selectionShader->setMat4("u_Model", glm::mat4(1.0f));
+        // We can skip selecting lights from viewport for now, or just implement basic node picking.
+        
+        // Handle mouse click
+        if (m_mouseClicked) {
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            int pixelData = -1;
+            int mappedY = m_viewportHeight - m_mouseY - 1;
+            if (m_mouseX >= 0 && m_mouseX < m_viewportWidth && mappedY >= 0 && mappedY < m_viewportHeight) {
+                glReadPixels(m_mouseX, mappedY, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
+            }
+            
+            if (pixelData != -1 && pixelData < selectableNodes.size()) {
+                Editor::SetSelectedNode(selectableNodes[pixelData]);
+            } else {
+                Editor::SetSelectedNode(nullptr);
+                Editor::SetSelectedLightIndex(-1);
+            }
+            m_mouseClicked = false;
+        }
+        
+        if (blendEnabled) glEnable(GL_BLEND);
+        if (ditherEnabled) glEnable(GL_DITHER);
+        glBindFramebuffer(GL_FRAMEBUFFER, currentFBO);
+    }
+    // --- END SELECTION PASS ---
+
+    // 0.5 Update Lights SSBO
     uploadLights();
 
     // Save current FBO to restore later
     GLint currentFBO;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &currentFBO);
 
-    // 1. Depth Pre-pass
-    glBindFramebuffer(GL_FRAMEBUFFER, m_depthMapFBO);
-    glViewport(0, 0, m_viewportWidth, m_viewportHeight);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    
-    depthPrepassShader->useWithCamera(*camera_);
-    for (auto sceneNode : scene_->getRootNodes()) {
-        renderNode(sceneNode.get(), depthPrepassShader);
+    // 0.5 Cascaded Shadow Map Pass
+    std::vector<glm::mat4> lightSpaceMatrices;
+    if (m_csmBuffer && shadowShader) {
+        // Find first directional light
+        glm::vec3 lightDir(0.0f, -1.0f, 0.1f); // Default pointing slightly down
+        bool hasDirLight = false;
+        for (const auto& light : scene_->getLights()) {
+            if (light.position.w == 1.0f) { // Directional
+                lightDir = glm::vec3(light.direction);
+                hasDirLight = true;
+                break;
+            }
+        }
+        
+        if (hasDirLight) {
+            lightSpaceMatrices = getLightSpaceMatrices(lightDir);
+            
+            shadowShader->use();
+            m_csmBuffer->Bind();
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_FRONT); // Peter panning fix
+            
+            for (size_t i = 0; i < lightSpaceMatrices.size(); ++i) {
+                m_csmBuffer->BindForWriting(i);
+                glClear(GL_DEPTH_BUFFER_BIT);
+                shadowShader->setMat4("u_LightSpaceMatrix", lightSpaceMatrices[i]);
+                for (auto sceneNode : scene_->getRootNodes()) {
+                    renderNode(sceneNode.get(), shadowShader);
+                }
+            }
+            
+            glCullFace(GL_BACK); // Return to default
+            m_csmBuffer->UnBind();
+        }
     }
+
+    // --- Update render context ---
+    m_renderCtx.camera        = camera_;
+    m_renderCtx.view          = camera_->GetViewMatrix();
+    
+    // TAA Jitter
+    glm::mat4 projection = camera_->GetProjectionMatrix();
+    // Always store the clean, unjittered projection — used for depth reconstruction and shadows.
+    // Shadow coordinates must be computed from world-space positions that are reconstructed
+    // using the unjittered inverse projection; using the jittered one shifts the reconstructed
+    // position by a sub-pixel amount that changes every frame, breaking shadow comparisons.
+    m_renderCtx.unjitteredProj = projection;
+    if (m_renderCtx.taa.enabled) {
+        m_renderCtx.taaFrameIndex = (m_renderCtx.taaFrameIndex + 1) % 2;
+        m_renderCtx.taaJitterIndex = (m_renderCtx.taaJitterIndex + 1) % 16;
+        
+        // Halton sequence (bases 2 and 3)
+        auto halton = [](int index, int base) {
+            float f = 1, r = 0;
+            while (index > 0) {
+                f = f / base;
+                r = r + f * (index % base);
+                index = index / base;
+            }
+            return r;
+        };
+        
+        float jitterX = (halton(m_renderCtx.taaJitterIndex + 1, 2) - 0.5f) * 2.0f / m_viewportWidth;
+        float jitterY = (halton(m_renderCtx.taaJitterIndex + 1, 3) - 0.5f) * 2.0f / m_viewportHeight;
+        
+        projection[2][0] += jitterX; // Modify column 2, row 0
+        projection[2][1] += jitterY; // Modify column 2, row 1
+    }
+    
+    m_renderCtx.projection    = projection;
+    m_renderCtx.cameraPos     = camera_->GetCameraPos();
+    m_renderCtx.screenWidth   = m_viewportWidth;
+    m_renderCtx.screenHeight  = m_viewportHeight;
+    m_renderCtx.scene         = scene_;
+    m_renderCtx.hasIBL        = m_envMap && m_envMap->IsLoaded();
+    m_renderCtx.debugMode     = m_debugMode;
+    m_renderCtx.visualizeTiles = visualizeTiles;
+    m_renderCtx.cascadeCount  = m_shadowCascadeLevels.size() + 1;
+    for (size_t i = 0; i < m_shadowCascadeLevels.size(); ++i) {
+        m_renderCtx.cascadePlaneDistances[i] = m_shadowCascadeLevels[i];
+    }
+    m_renderCtx.cascadePlaneDistances[m_shadowCascadeLevels.size()] = 100.0f; // camera far plane
+    for (size_t i = 0; i < lightSpaceMatrices.size(); ++i) {
+        m_renderCtx.lightSpaceMatrices[i] = lightSpaceMatrices[i];
+    }
+    m_renderCtx.csmTextureArray = m_csmBuffer ? m_csmBuffer->GetTextureId() : 0;
+    m_renderCtx.workGroupsX = m_workGroupsX;
+    m_renderCtx.workGroupsY = m_workGroupsY;
+
+    if (m_renderCtx.hasIBL) {
+        m_renderCtx.irradianceMap = m_envMap->GetIrradianceMap();
+        m_renderCtx.prefilterMap  = m_envMap->GetPrefilterMap();
+        m_renderCtx.brdfLUT       = m_envMap->GetBrdfLUT();
+    }
+
+    // 1. Deferred Geometry Pass (renders to G-Buffer)
+    if (m_geometryPass) m_geometryPass->Execute(m_renderCtx);
+
+    // 2. Light Culling Compute Pass (reads G-Buffer Depth)
+    if (m_cullingPass) m_cullingPass->Execute(m_renderCtx);
+
+    // 3. SSAO Pass (reads G-Buffer Depth + Normal)
+    if (m_ssaoPass) m_ssaoPass->Execute(m_renderCtx);
+
+    // 4. Deferred Lighting Pass (reads G-Buffer, writes to HDR FBO)
+    if (m_lightingPass) m_lightingPass->Execute(m_renderCtx);
+
+    // Bind HDR FBO to draw forward elements
+    glBindFramebuffer(GL_FRAMEBUFFER, m_renderCtx.hdrFBO);
+    glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+
+    // 5. Render Skybox (into HDR FBO)
+    if (scene_->IsSkyboxDirty()) {
+        loadSkybox(scene_->GetSkyboxPath());
+        scene_->ClearSkyboxDirty();
+    }
+    if (m_skyboxPass) m_skyboxPass->Execute(m_renderCtx);
+    glDepthFunc(GL_LESS);
+
+    // 6. Outline Pass (Requires rendering geometry again to stencil, simplified for now)
+    if (Editor::GetSelectedNode() && outlineShader) {
+        glClear(GL_STENCIL_BUFFER_BIT);
+        glEnable(GL_STENCIL_TEST);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilMask(0xFF);
+
+        // We need a basic shader to render the selected node to stencil
+        // For now, we can just use outlineShader and ignore its color output
+        outlineShader->useWithCamera(*camera_);
+        renderNode(Editor::GetSelectedNode(), outlineShader);
+        
+        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        glStencilMask(0x00);
+        outlineShader->use();
+        outlineShader->setMat4("u_Projection", m_renderCtx.projection);
+        outlineShader->setMat4("u_View", m_renderCtx.view);
+        outlineShader->setVec3("u_Color", glm::vec3(1.0, 0.5, 0.0)); // outline color
+        
+        glDisable(GL_DEPTH_TEST);
+        renderNode(Editor::GetSelectedNode(), outlineShader);
+        
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_STENCIL_TEST);
+    }
+
+    // 7. Render Light Gizmos (Icons)
+    if (!scene_->getLights().empty()) {
+        enableBlending(true);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        glBindVertexArray(m_emptyVAO);
+        lightGizmoShader->useWithCamera(*camera_);
+    
+        if (m_PointLightIcon) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, m_PointLightIcon);
+            lightGizmoShader->setInt("u_PointLightIcon", 0);
+        }
+        if (m_DirLightIcon) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, m_DirLightIcon);
+            lightGizmoShader->setInt("u_DirectionalLightIcon", 1);
+        }
+
+        glDrawArrays(GL_TRIANGLES, 0, scene_->getLights().size() * 6);
+        glBindVertexArray(0);
+        enableBlending(false);
+    }
+
+    // 8. Render Grid (into HDR FBO)
+    if (grid) {
+        grid->render(*camera_, deltaTime);
+    }
+
+    // 8.5. TAA Pass (reads HDR, writes resolved HDR)
+    if (m_taaPass) m_taaPass->Execute(m_renderCtx);
+
+    // 9. Bloom Pass (reads HDR color, writes bloom mip chain)
+    if (m_bloomPass) m_bloomPass->Execute(m_renderCtx);
+
+    // 10. Tone Mapping Pass — writes to the viewport FBO
+    // Restore the viewport's original FBO (the one we saved)
     glBindFramebuffer(GL_FRAMEBUFFER, currentFBO);
-
-    // 2. Light Culling Compute Pass
-    lightCullingShader->useWithCamera(*camera_);
-    lightCullingShader->setInt("depthMap", 4);
-    lightCullingShader->setVec2("screenSize", static_cast<float>(m_viewportWidth), static_cast<float>(m_viewportHeight));
-    lightCullingShader->setInt("lightCount", scene_->getLights().size());
-    
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, m_depthMap);
-    
-    lightCullingShader->dispatch(m_workGroupsX, m_workGroupsY, 1);
-    
-    // Ensure compute writes are visible to fragment shader
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-    // 3. Main Forward Pass
     glViewport(0, 0, m_viewportWidth, m_viewportHeight);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Note: Could use GL_EQUAL depth testing and not clear depth, but simplicity for now
+    glClear(GL_COLOR_BUFFER_BIT);
 
-    testPipeline->useWithCamera(*camera_);
-    testPipeline->setInt("u_ScreenWidth", m_viewportWidth);
-    
-    for (auto sceneNode : scene_->getRootNodes()) {
-        renderNode(sceneNode.get(), testPipeline);
-    }
+    if (m_toneMapPass) m_toneMapPass->Execute(m_renderCtx);
+
+    // Store current matrices as previous for next frame
+    m_renderCtx.prevView = m_renderCtx.view;
+    m_renderCtx.prevProjection = m_renderCtx.projection;
 }
 
 void Renderer::renderNode(SceneNode* node, Pipeline* shader) {
+    if (shader == testPipeline) {
+        if (node == Editor::GetSelectedNode()) {
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        } else {
+            glStencilFunc(GL_ALWAYS, 0, 0xFF);
+        }
+    }
+
     shader->setMat4("u_Model", node->globalTransform);
 
     for (auto& mesh : node->meshes) {
@@ -565,8 +1008,16 @@ void Renderer::renderNode(SceneNode* node, Pipeline* shader) {
 }
 
 void Renderer::setupForwardPlus(int width, int height) {
-    m_viewportWidth = width;
+    m_viewportWidth  = width;
     m_viewportHeight = height;
+
+    if (m_selectionTexture != 0) {
+        glBindTexture(GL_TEXTURE_2D, m_selectionTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, width, height, 0, GL_RED_INTEGER, GL_INT, NULL);
+        glBindTexture(GL_TEXTURE_2D, m_selectionDepth);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
 
     // Tile size is 16x16
     const int TILE_SIZE = 16;
@@ -575,8 +1026,8 @@ void Renderer::setupForwardPlus(int width, int height) {
     size_t numTiles = m_workGroupsX * m_workGroupsY;
 
     // Depth Prepass FBO
-    if (m_depthMapFBO != 0) glDeleteFramebuffers(1, &m_depthMapFBO);
-    if (m_depthMap != 0) glDeleteTextures(1, &m_depthMap);
+    if (m_depthMapFBO != 0) glDeleteFramebuffers(1, &m_depthMapFBO); m_depthMapFBO = 0;
+    if (m_depthMap != 0) glDeleteTextures(1, &m_depthMap); m_depthMap = 0;
 
     glGenFramebuffers(1, &m_depthMapFBO);
     glGenTextures(1, &m_depthMap);
@@ -607,6 +1058,9 @@ void Renderer::setupForwardPlus(int width, int height) {
     glBufferData(GL_SHADER_STORAGE_BUFFER, visibleLightIndicesSize, nullptr, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_visibleLightIndicesSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    // Resize HDR pipeline
+    CreateHDRFramebuffer(m_renderCtx, width, height);
 }
 
 void Renderer::uploadLights() {
@@ -621,9 +1075,99 @@ void Renderer::uploadLights() {
     }
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_lightsSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, lightCount * sizeof(PointLight), lights.empty() ? nullptr : lights.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, lightCount * sizeof(Light), lights.empty() ? nullptr : lights.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_lightsSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+std::vector<glm::vec4> Renderer::getFrustumCornersWorldSpace(const glm::mat4& proj, const glm::mat4& view) {
+    const auto inv = glm::inverse(proj * view);
+    std::vector<glm::vec4> frustumCorners;
+    for (unsigned int x = 0; x < 2; ++x) {
+        for (unsigned int y = 0; y < 2; ++y) {
+            for (unsigned int z = 0; z < 2; ++z) {
+                const glm::vec4 pt = 
+                    inv * glm::vec4(
+                        2.0f * x - 1.0f,
+                        2.0f * y - 1.0f,
+                        2.0f * z - 1.0f,
+                        1.0f);
+                frustumCorners.push_back(pt / pt.w);
+            }
+        }
+    }
+    return frustumCorners;
+}
+
+glm::mat4 Renderer::getLightSpaceMatrix(const float nearPlane, const float farPlane, const glm::vec3& lightDir) {
+    // 1. Build the true frustum for this cascade using the camera's FOV and aspect ratio
+    const auto proj = glm::perspective(
+        glm::radians(camera_->GetFov()), 
+        camera_->GetAspect(), 
+        nearPlane, 
+        farPlane
+    );
+    const auto corners = getFrustumCornersWorldSpace(proj, camera_->GetViewMatrix());
+
+    // 2. Find the center of the cascade frustum bounding sphere
+    glm::vec3 center = glm::vec3(0, 0, 0);
+    for (const auto& v : corners) {
+        center += glm::vec3(v);
+    }
+    center /= corners.size();
+
+    // 3. Find the radius of the bounding sphere
+    float radius = 0.0f;
+    for (const auto& v : corners) {
+        float distance = glm::length(glm::vec3(v) - center);
+        radius = glm::max(radius, distance);
+    }
+    // Round radius to prevent sub-pixel shimmering (optional but good practice)
+    radius = std::ceil(radius * 16.0f) / 16.0f;
+
+    // Prevent degenerate lookAt matrix when light direction is near-parallel to up vector
+    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+    if (glm::abs(glm::dot(glm::normalize(lightDir), up)) > 0.99f) {
+        up = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
+
+    // 4. Pull the light back along the light direction by the radius
+    glm::vec3 lightPos = center - glm::normalize(lightDir) * radius;
+    const auto lightView = glm::lookAt(
+        lightPos, 
+        center, 
+        up
+    );
+
+    // 5. Build an orthographic projection that perfectly bounds the sphere
+    float minX = -radius;
+    float maxX = radius;
+    float minY = -radius;
+    float maxY = radius;
+    
+    // Expand the Z bounds significantly. 
+    // Pulling the near plane back catches shadow casters behind the camera.
+    // Pushing the far plane forward ensures we don't clip the back half of the cascade sphere.
+    constexpr float zMultiplier = 10.0f;
+    float minZ = -radius * zMultiplier;
+    float maxZ = radius * zMultiplier;
+
+    const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, minZ, maxZ);
+    return lightProjection * lightView;
+}
+
+std::vector<glm::mat4> Renderer::getLightSpaceMatrices(const glm::vec3& lightDir) {
+    std::vector<glm::mat4> ret;
+    for (size_t i = 0; i < m_shadowCascadeLevels.size() + 1; ++i) {
+        if (i == 0) {
+            ret.push_back(getLightSpaceMatrix(0.1f, m_shadowCascadeLevels[i], lightDir));
+        } else if (i < m_shadowCascadeLevels.size()) {
+            ret.push_back(getLightSpaceMatrix(m_shadowCascadeLevels[i - 1], m_shadowCascadeLevels[i], lightDir));
+        } else {
+            ret.push_back(getLightSpaceMatrix(m_shadowCascadeLevels[i - 1], 100.0f, lightDir)); // 100.0 is camera far plane
+        }
+    }
+    return ret;
 }
 
 } // namespace lgt

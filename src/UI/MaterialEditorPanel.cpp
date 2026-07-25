@@ -18,8 +18,23 @@
 using namespace lgt;
 
 static lgt::SceneNode* g_SelectedNode = nullptr;
+static int g_SelectedLightIndex = -1;
+static int g_GizmoOperation = 0; // ImGuizmo::TRANSLATE
 
 namespace Editor {
+
+lgt::SceneNode* GetSelectedNode() { return g_SelectedNode; }
+void SetSelectedNode(lgt::SceneNode* node) { 
+    g_SelectedNode = node; 
+    if (node != nullptr) g_SelectedLightIndex = -1; // Mutual exclusion
+}
+int GetSelectedLightIndex() { return g_SelectedLightIndex; }
+void SetSelectedLightIndex(int index) { 
+    g_SelectedLightIndex = index; 
+    if (index != -1) g_SelectedNode = nullptr; // Mutual exclusion
+}
+int GetGizmoOperation() { return g_GizmoOperation; }
+void SetGizmoOperation(int op) { g_GizmoOperation = op; }
 
 void ApplyProfessionalTheme() {
     ImGuiStyle& style = ImGui::GetStyle();
@@ -124,8 +139,8 @@ static void DrawSceneNodeRecursive(lgt::SceneNode* node) {
 
     bool nodeOpen = ImGui::TreeNodeEx((void*)node, flags, "%s", displayName.c_str());
 
-    if (ImGui::IsItemClicked(0) || ImGui::IsItemClicked(1)) {
-        g_SelectedNode = node;
+    if (ImGui::IsItemClicked()) {
+        SetSelectedNode(node);
     }
 
     if (ImGui::BeginPopupContextItem()) {
@@ -181,7 +196,7 @@ void DrawSceneHierarchyPanel(lgt::Scene* scene) {
     ImGui::End();
 }
 
-void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer) {
+void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer, lgt::Scene* scene) {
     ImGui::Begin("Environment & Renderer");
 
     if (ImGui::CollapsingHeader("Renderer Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -191,6 +206,60 @@ void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer) {
             if (ImGui::Combo("Render Mode", &currentMode, items, IM_ARRAYSIZE(items))) {
                 renderer->setRenderMode((lgt::RenderMode)currentMode);
             }
+            ImGui::Checkbox("Visualize Tiles (Heatmap)", &renderer->visualizeTiles);
+
+            int debugMode = (int)renderer->getDebugMode();
+            const char* debugItems[] = {"Final Color", "Base Color", "Normal", "Emissive", "Normals Mapped"};
+            if (ImGui::Combo("PBR Debug Mode", &debugMode, debugItems, IM_ARRAYSIZE(debugItems))) {
+                renderer->setDebugMode((lgt::DebugMode)debugMode);
+            }
+            
+            ImGui::Separator();
+            int gbufDebug = renderer->getRenderContext().gBufferDebugView;
+            const char* gbufItems[] = {"Off (Final)", "Albedo", "Normal", "Emissive", "Velocity", "Depth", "SSAO"};
+            if (ImGui::Combo("G-Buffer Debug View", &gbufDebug, gbufItems, IM_ARRAYSIZE(gbufItems))) {
+                renderer->getRenderContext().gBufferDebugView = gbufDebug;
+            }
+
+            ImGui::Separator();
+            int shadowDebug = renderer->getRenderContext().shadowDebugMode;
+            const char* shadowItems[] = {
+                "Off", "World Pos", "View Pos", "Light Clip Pos", 
+                "Proj Coords", "Shadow UV", "Stored Depth", "Current Depth", 
+                "Cascade Index", "Raw Comparison", "Final Shadow"
+            };
+            if (ImGui::Combo("Shadow Debug View", &shadowDebug, shadowItems, IM_ARRAYSIZE(shadowItems))) {
+                renderer->getRenderContext().shadowDebugMode = shadowDebug;
+            }
+        }
+    }
+
+    if (renderer && ImGui::CollapsingHeader("HDR & Tone Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& ctx = renderer->getRenderContext();
+        ImGui::SliderFloat("Exposure", &ctx.hdr.exposure, 0.1f, 10.0f);
+        ImGui::SliderFloat("White Point", &ctx.hdr.whitePoint, 0.1f, 10.0f);
+        ImGui::SliderFloat("Gamma", &ctx.hdr.gamma, 1.0f, 3.0f);
+    }
+
+    if (renderer && ImGui::CollapsingHeader("Bloom (Jimenez 2014)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& ctx = renderer->getRenderContext();
+        ImGui::Checkbox("Enable Bloom", &ctx.bloom.enabled);
+        if (ctx.bloom.enabled) {
+            ImGui::SliderFloat("Threshold", &ctx.bloom.threshold, 0.0f, 10.0f);
+            ImGui::SliderFloat("Soft Knee", &ctx.bloom.softKnee, 0.0f, 1.0f);
+            ImGui::SliderFloat("Filter Radius", &ctx.bloom.filterRadius, 0.001f, 0.01f, "%.4f");
+            ImGui::SliderFloat("Strength", &ctx.bloom.strength, 0.0f, 1.0f);
+        }
+    }
+
+    if (renderer && ImGui::CollapsingHeader("SSAO (Ambient Occlusion)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& ctx = renderer->getRenderContext();
+        ImGui::Checkbox("Enable SSAO", &ctx.ssao.enabled);
+        if (ctx.ssao.enabled) {
+            ImGui::SliderFloat("Radius", &ctx.ssao.radius, 0.01f, 2.0f);
+            ImGui::SliderFloat("Bias", &ctx.ssao.bias, 0.0f, 0.1f);
+            ImGui::SliderFloat("Intensity", &ctx.ssao.intensity, 0.0f, 5.0f);
+            ImGui::SliderInt("Samples", &ctx.ssao.samples, 8, 64);
         }
     }
 
@@ -213,6 +282,100 @@ void DrawEnvironmentPanel(lgt::Grid* grid, lgt::Renderer* renderer) {
                     ImGui::SliderFloat("Wave Frequency", &settings.waveFrequency, 0.0f, 2.0f);
                 }
             }
+        }
+    }
+
+    if (scene && ImGui::CollapsingHeader("Light Management", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& lights = scene->getLights();
+        
+        if (ImGui::Button("Add Light")) {
+            lgt::Light newLight;
+            newLight.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // Point light default
+            newLight.color    = glm::vec4(1.0f, 1.0f, 1.0f, 100.0f);
+            newLight.direction = glm::vec4(0.0f, -1.0f, 0.0f, 5.0f); // direction, w=radius
+            newLight.params = glm::vec4(glm::cos(glm::radians(12.5f)), glm::cos(glm::radians(17.5f)), 0.0f, 0.0f);
+            lights.push_back(newLight);
+        }
+        
+        ImGui::Separator();
+        
+        if (ImGui::BeginChild("LightsList", ImVec2(0, 200), true)) {
+            for (int i = 0; i < lights.size(); i++) {
+                ImGui::PushID(i);
+                
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
+                if (Editor::GetSelectedLightIndex() == i) flags |= ImGuiTreeNodeFlags_Selected;
+                
+                bool nodeOpen = ImGui::TreeNodeEx(("Light " + std::to_string(i)).c_str(), flags);
+                if (ImGui::IsItemClicked()) {
+                    Editor::SetSelectedLightIndex(i);
+                }
+                
+                if (nodeOpen) {
+                    int lightType = (int)lights[i].position.w;
+                    const char* typeItems[] = { "Point", "Directional", "Spot" };
+                    if (ImGui::Combo("Type", &lightType, typeItems, IM_ARRAYSIZE(typeItems))) {
+                        lights[i].position.w = (float)lightType;
+                    }
+
+                    if (lightType != 1 || true) { // Always show position so it can be edited by gizmo
+                        ImGui::DragFloat3("Position", &lights[i].position.x, 0.1f);
+                    }
+                    if (lightType != 0) { // Not point
+                        ImGui::DragFloat3("Direction", &lights[i].direction.x, 0.01f, -1.0f, 1.0f);
+                        if (ImGui::IsItemDeactivatedAfterEdit()) {
+                            lights[i].direction = glm::vec4(glm::normalize(glm::vec3(lights[i].direction)), lights[i].direction.w);
+                        }
+                    }
+                    
+                    ImGui::ColorEdit3("Color", &lights[i].color.r);
+                    ImGui::DragFloat("Intensity", &lights[i].color.a, 0.1f, 0.0f, 10000.0f);
+                    
+                    if (lightType != 1) { // Not directional
+                        ImGui::DragFloat("Radius", &lights[i].direction.w, 0.1f, 0.1f, 1000.0f);
+                    }
+                    
+                    if (lightType == 2) { // Spot
+                        float inner = glm::degrees(glm::acos(lights[i].params.x));
+                        float outer = glm::degrees(glm::acos(lights[i].params.y));
+                        if (ImGui::DragFloat("Inner Cutoff", &inner, 0.5f, 0.0f, outer)) {
+                            lights[i].params.x = glm::cos(glm::radians(inner));
+                        }
+                        if (ImGui::DragFloat("Outer Cutoff", &outer, 0.5f, inner, 90.0f)) {
+                            lights[i].params.y = glm::cos(glm::radians(outer));
+                        }
+                    }
+
+                    if (ImGui::Button("Delete Light")) {
+                        lights.erase(lights.begin() + i);
+                        // Fix selected index after deletion
+                        int newSelected = Editor::GetSelectedLightIndex();
+                        if (newSelected >= (int)lights.size()) {
+                            Editor::SetSelectedLightIndex((int)lights.size() - 1);
+                        }
+                        i--;
+                        ImGui::TreePop();
+                        ImGui::PopID();
+                        continue;
+                    }
+                    ImGui::TreePop();
+                }
+                
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+        
+        if (ImGui::Button("Clear All Lights")) {
+            lights.clear();
+        }
+    }
+
+    if (scene && ImGui::CollapsingHeader("Skybox & IBL", ImGuiTreeNodeFlags_DefaultOpen)) {
+        static char skyboxPath[256] = "res/textures/skybox.hdr";
+        ImGui::InputText("HDR Path", skyboxPath, sizeof(skyboxPath));
+        if (ImGui::Button("Load Skybox")) {
+            scene->LoadSkybox(skyboxPath);
         }
     }
 
@@ -361,6 +524,14 @@ void DrawInspectorPanel() {
     static glm::vec3       s_Scale(1.0f);
 
     if (g_SelectedNode) {
+        int op = GetGizmoOperation();
+        if (ImGui::RadioButton("Translate", op == 0)) SetGizmoOperation(0);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Rotate", op == 1)) SetGizmoOperation(1);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Scale", op == 2)) SetGizmoOperation(2);
+        ImGui::Separator();
+        
         if (g_SelectedNode != s_LastSelectedNode) {
             s_LastSelectedNode = g_SelectedNode;
 

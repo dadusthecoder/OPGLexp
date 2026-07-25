@@ -1,5 +1,5 @@
 #pragma once
-#include "cstdint"
+#include <cstdint>
 #include <iostream>
 #include <memory>
 
@@ -27,7 +27,11 @@
 #include "Texture.h"
 #include "Shader.h"
 #include "Material.h"
-
+#include "RenderPass.h"
+#include "ToneMapPass.h"
+#include "BloomPass.h"
+#include "SSAOPass.h"
+#include "SkyboxPass.h"
 #define SHADOW_WIDTH  2048
 #define SHADOW_HEIGHT 2048
 
@@ -35,24 +39,19 @@ namespace lgt {
 class Camera;
 class Renderer;
 class Scene;
+class EnvironmentMap;
+class DeferredGeometryPass;
+class LightCullingPass;
+class DeferredLightingPass;
+class TAAPass;
+class ToneMapPass;
+class BloomPass;
+class SSAOPass;
+class SkyboxPass;
 struct SceneNode;
 using RenderId = unsigned int;
 
-enum class DebugMode {
-    BASE_COLOR_TEXTURE,
-    NORMAL_TEXTURE,
-    EMMISIVE_TEXTURE,
 
-    NORMALS_MAPPED,
-    DIFFUSE,
-    DIFFUSE_ALBEDO,
-    SPECULAR,
-
-    FSCHLICK,
-    GGX,
-    SMITHGGX,
-    FINAL_COLOR
-};
 
 struct Vertex {
     glm::vec3 position;
@@ -188,6 +187,24 @@ enum class RenderMode {
     if (!lgt::Renderer::GLLogCall(#x, __FILE__, __LINE__))                                                                       \
         __debugbreak();
 
+class CascadedShadowBuffer {
+private:
+    RenderId m_BufferId;
+    RenderId m_textureId;
+    int m_width, m_height;
+
+public:
+    CascadedShadowBuffer(int width, int height, int cascadeCount);
+    ~CascadedShadowBuffer();
+    RenderId GetTextureId();
+
+    void Bind();
+    void UnBind();
+    void BindTex(unsigned int unit);
+    void UnBindTex();
+    void BindForWriting(int layer);
+};
+
 class Renderer {
 public:
     Renderer(Scene* scene, Camera* camera);
@@ -225,6 +242,8 @@ public:
     void setScene(Scene* Scene);
     void setDebugMode(DebugMode mode);
     DebugMode getDebugMode() const { return m_debugMode; }
+    
+    bool visualizeTiles = false;
 
     // material management
     void createMaterailBuffer(size_t size);
@@ -233,10 +252,27 @@ public:
 
     void updateDirtyRange(MaterialGPU* data, size_t offset, size_t count);
 
-    void render();
+    void render(class Grid* grid = nullptr, float deltaTime = 0.0f);
     void renderNode(SceneNode* node, Pipeline* shader);
 
+    void setMouseSelection(int x, int y) { m_mouseX = x; m_mouseY = y; m_mouseClicked = true; }
+
+    // Post-processing settings (exposed for ImGui)
+    RenderContext& getRenderContext() { return m_renderCtx; }
+
 private:
+    // Render Graph (post-processing pipeline)
+    RenderContext m_renderCtx;
+    RenderGraph   m_renderGraph;
+    
+    DeferredGeometryPass* m_geometryPass = nullptr;
+    LightCullingPass*     m_cullingPass  = nullptr;
+    SSAOPass*             m_ssaoPass     = nullptr;
+    DeferredLightingPass* m_lightingPass = nullptr;
+    SkyboxPass*           m_skyboxPass   = nullptr;
+    BloomPass*            m_bloomPass    = nullptr;
+    ToneMapPass*          m_toneMapPass  = nullptr;
+    TAAPass*              m_taaPass      = nullptr;
     // Helper methods
     static const char* getGLErrorString(GLenum error);
 
@@ -255,13 +291,18 @@ private:
     Pipeline* testPipeline = nullptr;
     Pipeline* depthPrepassShader = nullptr;
     Pipeline* lightCullingShader = nullptr;
+    Pipeline* lightGizmoShader = nullptr;
+    Pipeline* selectionShader = nullptr;
+    Pipeline* outlineShader = nullptr;
 
     Camera*   camera_      = nullptr;
     Scene*    scene_       = nullptr;
 
     // Forward+ resources
-    RenderId m_lightsSSBO = 0;
-    RenderId m_visibleLightIndicesSSBO = 0;
+    GLuint m_lightsSSBO              = 0;
+    GLuint m_visibleLightIndicesSSBO = 0;
+    GLuint m_PointLightIcon          = 0;
+    GLuint m_DirLightIcon            = 0;
     RenderId m_depthMapFBO = 0;
     RenderId m_depthMap = 0;
     
@@ -269,8 +310,33 @@ private:
     int m_viewportHeight = 0;
     int m_workGroupsX = 0;
     int m_workGroupsY = 0;
+    GLuint m_emptyVAO = 0; // Reusable empty VAO for attribute-less draws (gizmos)
 
     void setupForwardPlus(int width, int height);
     void uploadLights();
+
+    // Skybox & IBL
+    std::unique_ptr<EnvironmentMap> m_envMap;
+    
+    EnvironmentMap* getEnvironmentMap() { return m_envMap.get(); }
+    void loadSkybox(const std::string& hdrPath);
+
+    // Cascaded Shadow Maps
+    GLuint m_selectionFBO = 0;
+    GLuint m_selectionTexture = 0;
+    GLuint m_selectionDepth = 0;
+    
+    int m_mouseX = -1;
+    int m_mouseY = -1;
+    bool m_mouseClicked = false;
+    
+    std::unique_ptr<CascadedShadowBuffer> m_csmBuffer;
+    Pipeline* shadowShader = nullptr;
+    const std::vector<float>& getCascadeLevels() const { return m_shadowCascadeLevels; }
+    std::vector<float> m_shadowCascadeLevels;
+    
+    std::vector<glm::vec4> getFrustumCornersWorldSpace(const glm::mat4& proj, const glm::mat4& view);
+    glm::mat4 getLightSpaceMatrix(const float nearPlane, const float farPlane, const glm::vec3& lightDir);
+    std::vector<glm::mat4> getLightSpaceMatrices(const glm::vec3& lightDir);
 };
 } // namespace lgt

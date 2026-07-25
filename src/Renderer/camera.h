@@ -25,6 +25,8 @@ public:
     const glm::mat4 GetProjectionMatrix();
     const glm::vec3 GetCameraPos();
     const glm::vec3 GetDirection();
+    float           GetFov() const;
+    float           GetAspect() const;
     void            setAspect(int w, int h);
 };
 

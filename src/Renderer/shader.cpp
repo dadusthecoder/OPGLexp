@@ -3,11 +3,18 @@
 
 #include "Renderer.h"
 #include "Helpers/Logger.h"
+#include <filesystem>
 
 namespace lgt {
 Pipeline::Pipeline(const std::string& filepath)
     : m_filepath(filepath),
       m_RenderID(0) {
+    try {
+        if (std::filesystem::exists(filepath)) {
+            m_lastWriteTime = std::filesystem::last_write_time(filepath).time_since_epoch().count();
+        }
+    } catch (...) {}
+
     shadersource source = parseShader(filepath);
     if (!source.computeSource.empty()) {
         m_type = ShaderType::COMPUTESHADER;
@@ -24,6 +31,12 @@ Pipeline::Pipeline(const std::string& filepath, ShaderType type)
     : m_filepath(filepath),
       m_RenderID(0),
       m_type(type) {
+    try {
+        if (std::filesystem::exists(filepath)) {
+            m_lastWriteTime = std::filesystem::last_write_time(filepath).time_since_epoch().count();
+        }
+    } catch (...) {}
+
     shadersource source = parseShader(filepath);
     if (type == ShaderType::COMPUTESHADER || !source.computeSource.empty()) {
         m_type = ShaderType::COMPUTESHADER;
@@ -60,14 +73,7 @@ void Pipeline::unuse() const {
 
 shadersource Pipeline::parseShader(const std::string& filepath) {
     m_filepath = filepath;
-    std::ifstream stream(filepath);
 
-    if (!stream.is_open()) {
-        CORE_ERROR("Failed to open shader file: {}", filepath);
-        return {"", ""};
-    }
-
-    std::string       line;
     std::stringstream ss[3];
 
     enum class InternalShaderType {
@@ -78,18 +84,41 @@ shadersource Pipeline::parseShader(const std::string& filepath) {
     };
     InternalShaderType type = InternalShaderType::NONE;
 
-    while (getline(stream, line)) {
-        if (line.find("#shader") != std::string::npos) {
-            if (line.find("Vertex") != std::string::npos)
-                type = InternalShaderType::VERTEX;
-            else if (line.find("Fragment") != std::string::npos)
-                type = InternalShaderType::FRAGMENT;
-            else if (line.find("Compute") != std::string::npos)
-                type = InternalShaderType::COMPUTE;
-        } else if (type != InternalShaderType::NONE) {
-            ss[static_cast<int>(type)] << line << "\n";
+    auto processFile = [&](const std::string& currentFilepath, InternalShaderType& currentType, auto& processFileRef) -> void {
+        std::ifstream stream(currentFilepath);
+        if (!stream.is_open()) {
+            CORE_ERROR("Failed to open shader file: {}", currentFilepath);
+            return;
         }
-    }
+
+        std::string line;
+        while (getline(stream, line)) {
+            if (line.find("#shader") != std::string::npos) {
+                if (line.find("Vertex") != std::string::npos)
+                    currentType = InternalShaderType::VERTEX;
+                else if (line.find("Fragment") != std::string::npos)
+                    currentType = InternalShaderType::FRAGMENT;
+                else if (line.find("Compute") != std::string::npos)
+                    currentType = InternalShaderType::COMPUTE;
+            } else if (line.find("#include") != std::string::npos) {
+                size_t firstQuote = line.find_first_of("\"<");
+                size_t lastQuote = line.find_last_of("\">");
+                if (firstQuote != std::string::npos && lastQuote != std::string::npos && firstQuote < lastQuote) {
+                    std::string incFilename = line.substr(firstQuote + 1, lastQuote - firstQuote - 1);
+                    std::filesystem::path p(currentFilepath);
+                    std::filesystem::path incPath = p.parent_path() / incFilename;
+                    if (!std::filesystem::exists(incPath)) {
+                        incPath = std::filesystem::path("res/shaders") / incFilename;
+                    }
+                    processFileRef(incPath.string(), currentType, processFileRef);
+                }
+            } else if (currentType != InternalShaderType::NONE) {
+                ss[static_cast<int>(currentType)] << line << "\n";
+            }
+        }
+    };
+
+    processFile(filepath, type, processFile);
 
     return {ss[0].str(), ss[1].str(), ss[2].str()};
 }
@@ -338,23 +367,7 @@ bool Pipeline::isValid() const {
     return m_RenderID != 0;
 }
 
-void Pipeline::reload() {
-    if (m_RenderID != 0) {
-        glDeleteProgram(m_RenderID);
-    }
-
-    CORE_INFO("Reloading shader from: {}", m_filepath);
-    shadersource source = parseShader(m_filepath);
-    m_RenderID          = createShader(source.vertexSource, source.fragmentSource);
-
-    if (m_RenderID != 0) {
-        cacheUniformLocations();
-        CORE_INFO("Shader reloaded successfully.");
-    } else {
-        CORE_ERROR("Failed to reload shader.");
-    }
-}
-
+// Removed old reload function
 void Pipeline::printActiveUniforms() const {
     if (m_RenderID == 0)
         return;
@@ -372,6 +385,49 @@ void Pipeline::printActiveUniforms() const {
         glGetActiveUniform(m_RenderID, i, sizeof(name), &length, &size, &type, name);
         int location = glGetUniformLocation(m_RenderID, name);
         CORE_INFO("  [{}] {}", location, name);
+    }
+}
+
+void Pipeline::reload() {
+    if (m_filepath.empty()) return;
+    
+    CORE_INFO("Reloading shader: {}", m_filepath);
+    shadersource source = parseShader(m_filepath);
+    
+    GLuint newRenderID = 0;
+    if (m_type == ShaderType::COMPUTESHADER || !source.computeSource.empty()) {
+        newRenderID = createComputeShader(source.computeSource);
+    } else {
+        newRenderID = createShader(source.vertexSource, source.fragmentSource);
+    }
+    
+    // If compilation succeeded, swap out the old ID for the new one
+    if (newRenderID != 0) {
+        if (m_RenderID != 0) {
+            glDeleteProgram(m_RenderID);
+        }
+        m_RenderID = newRenderID;
+        m_uniformLocationCache.clear();
+        cacheUniformLocations();
+        CORE_INFO("Shader hot-reload successful for: {}", m_filepath);
+    } else {
+        CORE_ERROR("Shader hot-reload failed for: {}. Keeping previous version.", m_filepath);
+    }
+}
+
+void Pipeline::reloadIfModified() {
+    if (m_filepath.empty()) return;
+    
+    try {
+        if (std::filesystem::exists(m_filepath)) {
+            long long currentWriteTime = std::filesystem::last_write_time(m_filepath).time_since_epoch().count();
+            if (currentWriteTime != m_lastWriteTime) {
+                m_lastWriteTime = currentWriteTime;
+                reload();
+            }
+        }
+    } catch (...) {
+        // Ignore file access errors during polling
     }
 }
 

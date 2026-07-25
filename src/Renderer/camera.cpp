@@ -100,6 +100,18 @@ const glm::vec3 Camera::GetCameraPos() {
 const glm::vec3 Camera::GetDirection() {
     return front;
 }
+
+float Camera::GetFov() const {
+    return 45.0f; // Currently hardcoded to 45 degrees
+}
+
+float Camera::GetAspect() const {
+    if (m_h != 0 && m_w != 0) {
+        return static_cast<float>(m_w) / static_cast<float>(m_h);
+    }
+    return 1.0f;
+}
+
 void Camera::setAspect(int w, int h) {
     m_w = w;
     m_h = h;

@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "GltfLoader.h"
+#include "StaticBVH.h"
 #include "Helpers/Logger.h"
 
 namespace lgt {
@@ -202,7 +203,23 @@ bool Scene::LoadGltf(const std::filesystem::path& path) {
     std::vector<uint32_t> materialMap = loader::assimp::ProcaessMaterials(scene, path.parent_path().string());
     m_RootNodes.push_back(parseNode(scene->mRootNode, scene, materialMap));
     Update();
+    m_accelDirty = true;  // Mark BVH for rebuild
     return true;
+}
+
+void Scene::BuildAccelerationStructure() {
+    if (m_RootNodes.empty()) {
+        CORE_WARN("Scene::BuildAccelerationStructure() — no root nodes, skipping");
+        return;
+    }
+
+    m_accel = std::make_unique<StaticBVH>();
+    m_accel->Build(m_RootNodes);
+    m_accel->UploadToGPU();
+    m_accelDirty = false;
+
+    CORE_INFO("Scene acceleration structure built: {} nodes, {} triangles",
+              m_accel->GetNodeCount(), m_accel->GetTriangleCount());
 }
 
 } // namespace lgt

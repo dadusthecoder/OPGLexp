@@ -1,0 +1,91 @@
+#version 460 core
+// ============================================================
+// RTAODenoise.comp — Edge-aware bilateral blur for RTAO
+//
+// Smooths noisy 1spp RTAO output using depth and normal
+// similarity weights to preserve sharp edges at geometry
+// boundaries.
+// ============================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Input: raw (possibly temporally accumulated) AO
+layout(r16f, binding = 0) readonly uniform image2D u_InputAO;
+
+// Output: denoised AO
+layout(r8, binding = 1) writeonly uniform image2D u_OutputAO;
+
+// G-Buffer for edge detection
+uniform sampler2D u_Depth;
+uniform sampler2D u_Normals;
+uniform vec2      u_TexelSize;  // 1.0 / resolution
+
+// Depth similarity threshold — larger = more blurring across depth edges
+const float DEPTH_SIGMA = 0.5;
+// Normal similarity threshold — larger = more blurring across normal edges
+const float NORMAL_SIGMA = 16.0;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = imageSize(u_OutputAO);
+
+    if (pixel.x >= size.x || pixel.y >= size.y)
+        return;
+
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+
+    // Center pixel values
+    float centerAO    = imageLoad(u_InputAO, pixel).r;
+    float centerDepth = texture(u_Depth, uv).r;
+    vec3  centerNorm  = normalize(texture(u_Normals, uv).rgb);
+
+    // Skip sky
+    if (centerDepth >= 1.0 || centerDepth <= 0.0) {
+        imageStore(u_OutputAO, pixel, vec4(1.0));
+        return;
+    }
+
+    // 5x5 bilateral filter
+    float totalWeight = 1.0;
+    float totalAO     = centerAO;
+
+    const int KERNEL_RADIUS = 2;
+
+    for (int dy = -KERNEL_RADIUS; dy <= KERNEL_RADIUS; ++dy) {
+        for (int dx = -KERNEL_RADIUS; dx <= KERNEL_RADIUS; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+
+            ivec2 samplePixel = pixel + ivec2(dx, dy);
+
+            // Bounds check
+            if (samplePixel.x < 0 || samplePixel.y < 0 ||
+                samplePixel.x >= size.x || samplePixel.y >= size.y)
+                continue;
+
+            vec2 sampleUV = (vec2(samplePixel) + 0.5) / vec2(size);
+
+            float sampleAO    = imageLoad(u_InputAO, samplePixel).r;
+            float sampleDepth = texture(u_Depth, sampleUV).r;
+            vec3  sampleNorm  = normalize(texture(u_Normals, sampleUV).rgb);
+
+            // Depth weight: reject samples at very different depths
+            float depthDiff = abs(centerDepth - sampleDepth);
+            float depthWeight = exp(-depthDiff * depthDiff * DEPTH_SIGMA);
+
+            // Normal weight: reject samples with very different normals
+            float normalDot = max(dot(centerNorm, sampleNorm), 0.0);
+            float normalWeight = pow(normalDot, NORMAL_SIGMA);
+
+            // Spatial weight (Gaussian falloff)
+            float dist2 = float(dx * dx + dy * dy);
+            float spatialWeight = exp(-dist2 / 4.0);  // sigma^2 = 2.0
+
+            float weight = depthWeight * normalWeight * spatialWeight;
+            totalWeight += weight;
+            totalAO     += sampleAO * weight;
+        }
+    }
+
+    float result = totalAO / totalWeight;
+    imageStore(u_OutputAO, pixel, vec4(result));
+}

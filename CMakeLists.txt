@@ -22,6 +22,7 @@ target_compile_definitions(OPGLexp PRIVATE LGT_DEBUG _CONSOLE UNICODE _UNICODE N
 # Find and link Vcpkg dependencies
 find_package(glfw3 CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(imguizmo CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
@@ -30,6 +31,7 @@ find_package(fmt CONFIG REQUIRED)
 target_link_libraries(OPGLexp PRIVATE
     glfw
     imgui::imgui
+    imguizmo::imguizmo
     glm::glm
     assimp::assimp
     spdlog::spdlog

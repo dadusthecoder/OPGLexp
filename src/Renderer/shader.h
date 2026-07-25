@@ -27,6 +27,7 @@ struct shadersource {
 class Pipeline {
 private:
     std::string                                  m_filepath;
+    long long                                    m_lastWriteTime = 0;
     GLuint                                       m_RenderID;
     ShaderType                                   m_type = ShaderType::COLORSHADER;
     mutable std::unordered_map<std::string, int> m_uniformLocationCache;
@@ -102,6 +103,7 @@ public:
     const std::string& getPath() const;
     bool               isValid() const;
     void               reload();
+    void               reloadIfModified();
     void               printActiveUniforms() const;
 };
 } // namespace lgt

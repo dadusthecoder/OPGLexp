@@ -6,6 +6,8 @@
 #include "UI/Editor.h"
 #include "Helpers/Logger.h"
 #include <fstream>
+#include <ImGuizmo.h>
+#include <glm/gtc/type_ptr.hpp>
 
 #define MAIN        void main()
 #define MAIN_RETURN return
@@ -138,25 +140,31 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
     lgt::Scene  scene;
     lgt::Camera camera((int)width, (int)height, glm::vec3(0.0f, 1.5f, 3.0f));
 
-    // Spawn a 10x10 grid of dynamic point lights for testing Forward+
-    for (int x = -5; x < 5; x++) {
-        for (int z = -5; z < 5; z++) {
-            lgt::PointLight light;
-            light.position = glm::vec4(x * 1.5f, 1.0f, z * 1.5f, 1.0f);
-            
-            // Generate some random looking colors based on position
-            float r = (sin(x * 1.3f) + 1.0f) * 0.5f;
-            float g = (cos(z * 1.7f) + 1.0f) * 0.5f;
-            float b = (sin((x + z) * 1.1f) + 1.0f) * 0.5f;
-            
-            light.color = glm::vec4(r, g, b, 2.0f); // RGB + Intensity
-            light.radius = 2.5f;
-            
-            scene.addLight(light);
-        }
-    }
+    // Load Sponza test scene
+    scene.LoadGltf("res/modles/sopnza_palace/Sponza_palace.gltf");
 
-    // Models are now loaded dynamically via the Asset Browser panel at runtime
+    // Setup Directional Light (Sun)
+    lgt::Light sunLight;
+    sunLight.position = glm::vec4(0.0f, 20.0f, 0.0f, 1.0f); // w=1 (directional)
+    sunLight.color     = glm::vec4(1.0f, 0.95f, 0.85f, 3.0f); // Warm sun + intensity
+    sunLight.direction = glm::vec4(0.2f, -1.0f, 0.3f, 1.0f); // Angled down
+    sunLight.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+    scene.addLight(sunLight);
+
+    // Setup a couple of point lights to show off the Forward+ clustered shading
+    lgt::Light point1;
+    point1.position = glm::vec4(4.0f, 1.0f, 0.0f, 0.0f); // w=0 (point)
+    point1.color     = glm::vec4(1.0f, 0.2f, 0.2f, 5.0f); // Red
+    point1.direction = glm::vec4(0.0f, 0.0f, 0.0f, 8.0f); // w=radius (8m)
+    point1.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+    scene.addLight(point1);
+
+    lgt::Light point2;
+    point2.position = glm::vec4(-4.0f, 1.0f, 0.0f, 0.0f); // w=0 (point)
+    point2.color     = glm::vec4(0.2f, 0.2f, 1.0f, 5.0f); // Blue
+    point2.direction = glm::vec4(0.0f, 0.0f, 0.0f, 8.0f); // w=radius (8m)
+    point2.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+    scene.addLight(point2);
 
 
     lgt::Renderer renderer(&scene, &camera);
@@ -184,6 +192,7 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        ImGuizmo::BeginFrame();
         
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
@@ -207,20 +216,72 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             
             renderer.setViewport(framebuffer.GetWidth(), framebuffer.GetHeight());
-            renderer.render();
-            grid.render(camera, deltaTime);
+            renderer.render(&grid, deltaTime);
             
             framebuffer.Unuse();
 
             // Display FBO texture in ImGui
-            ImGui::Image((ImTextureID)(intptr_t)framebuffer.GetTextureId(), viewportSize, ImVec2(0, 1), ImVec2(1, 0));
+            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
+            
+            GLuint displayTexture = framebuffer.GetTextureId();
+            const auto& ctx = renderer.getRenderContext();
+            if (ctx.gBufferDebugView == 1) displayTexture = ctx.gAlbedoMetallic;
+            else if (ctx.gBufferDebugView == 2) displayTexture = ctx.gNormalRoughness;
+            else if (ctx.gBufferDebugView == 3) displayTexture = ctx.gEmissive;
+            else if (ctx.gBufferDebugView == 4) displayTexture = ctx.gVelocity;
+            else if (ctx.gBufferDebugView == 5) displayTexture = ctx.gDepth;
+            else if (ctx.gBufferDebugView == 6) displayTexture = ctx.aoTexture;
+            
+            ImGui::Image((ImTextureID)(intptr_t)displayTexture, viewportSize, ImVec2(0, 1), ImVec2(1, 0));
+
+            if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                if (!ImGuizmo::IsOver()) {
+                    ImVec2 mousePos = ImGui::GetMousePos();
+                    int mouseX = (int)(mousePos.x - cursorScreenPos.x);
+                    int mouseY = (int)(mousePos.y - cursorScreenPos.y);
+                    renderer.setMouseSelection(mouseX, mouseY);
+                }
+            }
+
+            // ImGuizmo
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+            
+            glm::mat4 view = camera.GetViewMatrix();
+            glm::mat4 projection = camera.GetProjectionMatrix();
+            
+            if (Editor::GetSelectedNode()) {
+                glm::mat4 transform = Editor::GetSelectedNode()->localTransform;
+                ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection), 
+                                     (ImGuizmo::OPERATION)Editor::GetGizmoOperation(), ImGuizmo::LOCAL, glm::value_ptr(transform));
+                if (ImGuizmo::IsUsing()) {
+                    Editor::GetSelectedNode()->localTransform = transform;
+                    // Trigger transform cascade update
+                    for (auto root : scene.getRootNodes()) {
+                        root->UpdateTransformCascades();
+                    }
+                }
+            } else if (Editor::GetSelectedLightIndex() != -1) {
+                int lightIdx = Editor::GetSelectedLightIndex();
+                lgt::Light& light = scene.getLights()[lightIdx];
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(light.position));
+                
+                ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection), 
+                                     ImGuizmo::TRANSLATE, ImGuizmo::WORLD, glm::value_ptr(transform));
+                if (ImGuizmo::IsUsing()) {
+                    light.position.x = transform[3][0];
+                    light.position.y = transform[3][1];
+                    light.position.z = transform[3][2];
+                }
+            }
         }
         ImGui::End();
         ImGui::PopStyleVar();
 
         Editor::DrawMaterialEditorPanel();
         Editor::DrawSceneHierarchyPanel(&scene);
-        Editor::DrawEnvironmentPanel(&grid, &renderer);
+        Editor::DrawEnvironmentPanel(&grid, &renderer, &scene);
         Editor::DrawCameraPanel(&camera, &camSpeed, &camSensitivity);
         Editor::DrawAssetBrowserPanel(&scene);
         Editor::DrawInspectorPanel();
@@ -238,7 +299,7 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
             rKeyWasPressed = false;
         if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS && !fKeyWasPressed) {
             int currentMode = (int)renderer.getDebugMode();
-            currentMode = (currentMode + 1) % 11;
+            currentMode = (currentMode + 1) % 5; // 0=Final, 1=Albedo, 2=Normal, 3=Emissive, 4=WorldNormal
             renderer.setDebugMode((lgt::DebugMode)(currentMode));
             fKeyWasPressed = true;
         } else if (glfwGetKey(window, GLFW_KEY_F) == GLFW_RELEASE && fKeyWasPressed)
