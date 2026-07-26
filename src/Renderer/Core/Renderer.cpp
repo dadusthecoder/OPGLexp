@@ -230,28 +230,43 @@ namespace lgt {
             std::vector<InstanceData> instances;
             instances.reserve(s_CommandQueue.m_Commands.size());
 
+            std::unordered_map<Mesh*, uint32_t> meshOffsets;
             s_GlobalMeshlets.clear();
 
             for (const auto& cmd : s_CommandQueue.m_Commands) {
                 if (cmd.mesh) {
+                    if (meshOffsets.find(cmd.mesh) == meshOffsets.end()) {
+                        meshOffsets[cmd.mesh] = static_cast<uint32_t>(s_GlobalMeshlets.size());
+                        s_GlobalMeshlets.insert(s_GlobalMeshlets.end(), cmd.mesh->GetMeshlets().begin(), cmd.mesh->GetMeshlets().end());
+                    }
+
                     InstanceData inst;
                     inst.Transform = cmd.transform;
-                    inst.meshletInfo.x = s_GlobalMeshlets.size(); // firstMeshlet
-                    inst.meshletInfo.y = cmd.mesh->GetMeshlets().size(); // meshletCount
+                    inst.meshletInfo.x = meshOffsets[cmd.mesh];          // firstMeshlet
+                    inst.meshletInfo.y = static_cast<uint32_t>(cmd.mesh->GetMeshlets().size()); // meshletCount
                     inst.meshletInfo.z = 0;
                     inst.meshletInfo.w = 0;
                     instances.push_back(inst);
-                    
-                    s_GlobalMeshlets.insert(s_GlobalMeshlets.end(), cmd.mesh->GetMeshlets().begin(), cmd.mesh->GetMeshlets().end());
                 }
             }
 
             if (!instances.empty()) {
                 if (!s_GlobalMeshlets.empty()) {
-                    s_GlobalMeshletBuffer->SetData(s_GlobalMeshlets.data(), s_GlobalMeshlets.size() * sizeof(Meshlet), 0);
+                    // Recreate buffer if size exceeded
+                    if (s_GlobalMeshlets.size() * sizeof(Meshlet) > s_GlobalMeshletBuffer->GetSize()) {
+                        delete s_GlobalMeshletBuffer;
+                        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, s_GlobalMeshlets.size() * sizeof(Meshlet), s_GlobalMeshlets.data());
+                    } else {
+                        s_GlobalMeshletBuffer->SetData(s_GlobalMeshlets.data(), s_GlobalMeshlets.size() * sizeof(Meshlet), 0);
+                    }
                 }
                 
-                s_GlobalInstanceBuffer->SetData(instances.data(), instances.size() * sizeof(InstanceData), 0);
+                if (instances.size() * sizeof(InstanceData) > s_GlobalInstanceBuffer->GetSize()) {
+                    delete s_GlobalInstanceBuffer;
+                    s_GlobalInstanceBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, instances.size() * sizeof(InstanceData) * 2, instances.data(), BufferUsage::DynamicDraw);
+                } else {
+                    s_GlobalInstanceBuffer->SetData(instances.data(), instances.size() * sizeof(InstanceData), 0);
+                }
                 
                 uint32_t zero = 0;
                 s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);

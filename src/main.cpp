@@ -65,7 +65,27 @@ int main() {
 
     // Load sphere model
     lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry_pass.glsl");
-    lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
+    lgt::Entity rootSphere = lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
+
+    // Get the loaded mesh
+    lgt::MeshRendererComponent* baseMeshComp = nullptr;
+    auto meshView = scene.GetRegistry().view<lgt::MeshRendererComponent>();
+    for (auto entityID : meshView) {
+        baseMeshComp = &scene.GetRegistry().get<lgt::MeshRendererComponent>(entityID);
+        break;
+    }
+
+    if (baseMeshComp) {
+        // Create a 10x10 grid of spheres
+        for (int i = 0; i < 10; ++i) {
+            for (int j = 0; j < 10; ++j) {
+                lgt::Entity gridSphere = scene.CreateEntity("Sphere_" + std::to_string(i) + "_" + std::to_string(j));
+                gridSphere.AddComponent<lgt::MeshRendererComponent>(*baseMeshComp);
+                auto& transform = gridSphere.GetComponent<lgt::TransformComponent>();
+                transform.Translation = glm::vec3((i - 5) * 2.5f, 0.0f, (j - 5) * 2.5f);
+            }
+        }
+    }
 
     // Directional Light
     lgt::Entity lightEntity = scene.CreateEntity("SunLight");
