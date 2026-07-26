@@ -38,3 +38,11 @@ When starting a new session or switching tasks, **ALL AI AGENTS MUST** immediate
 5. The most recent ADRs in `Docs/ADR/` (if modifying architecture)
 
 **Failure to read these files will result in context loss and hallucination.**
+
+## MANDATORY END OF TASK (AI Memory Update)
+Before finishing a feature, ending the day, or switching tasks, **ALL AI AGENTS MUST** update the project memory:
+1. **Update `Docs/CurrentSprint.md`**: Log what was completed and what is unresolved.
+2. **Update `Docs/Architecture.md` and `Docs/Decisions.md`**: If any structural changes were made.
+3. **Update `Roadmap/`**: Check off (`[x]`) completed items in the relevant markdown task list.
+4. **Create an ADR in `Docs/ADR/`**: If a significant technical or architectural decision was made.
+5. **Commit**: Ensure all documentation updates are committed to Git alongside the code.
