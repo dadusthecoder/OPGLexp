@@ -1,0 +1,9 @@
+[2026-07-27 01:15:27.350] [info] Loaded mesh 'defaultobject': 6144 vertices, 2048 triangles (optimized)
+[2026-07-27 01:15:27.350] [info] Model 'res/models/sphere.obj' loaded successfully
+Warning: uniform 'u_ViewProjection' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[0]' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[1]' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[2]' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[3]' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[4]' doesn't exist!
+Warning: uniform 'u_FrustumPlanes[5]' doesn't exist!

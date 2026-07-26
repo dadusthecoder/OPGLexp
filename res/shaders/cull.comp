@@ -44,19 +44,19 @@ layout(std430, binding = 3) buffer DrawCountBuffer {
 
 uniform mat4 u_ViewProjection;
 uniform vec4 u_FrustumPlanes[6];
-uniform int u_InstanceCount;
+uniform uint u_InstanceCount;
 
 bool IsVisible(vec3 center, float radius) {
-    // for (int i = 0; i < 6; ++i) {
-    //     if (dot(u_FrustumPlanes[i].xyz, center) + u_FrustumPlanes[i].w < -radius) {
-    //         return false;
-    //     }
-    // }
+    for (int i = 0; i < 6; ++i) {
+        if (dot(u_FrustumPlanes[i].xyz, center) + u_FrustumPlanes[i].w < -radius) {
+            return false;
+        }
+    }
     return true;
 }
 
 void main() {
-    int instanceID = int(gl_GlobalInvocationID.x);
+    uint instanceID = gl_GlobalInvocationID.x;
     if (instanceID >= u_InstanceCount) return;
 
     InstanceData inst = instances[instanceID];
