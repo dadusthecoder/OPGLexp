@@ -229,19 +229,40 @@ namespace lgt {
             std::vector<InstanceData> instances;
             instances.reserve(s_CommandQueue.m_Commands.size());
 
+            s_GlobalMeshlets.clear();
+
             for (const auto& cmd : s_CommandQueue.m_Commands) {
                 if (cmd.mesh) {
                     InstanceData inst;
                     inst.Transform = cmd.transform;
-                    inst.meshletInfo.x = 0; // firstMeshlet
-                    inst.meshletInfo.y = s_GlobalMeshlets.size(); // meshletCount
+                    inst.meshletInfo.x = s_GlobalMeshlets.size(); // firstMeshlet
+                    inst.meshletInfo.y = cmd.mesh->GetMeshlets().size(); // meshletCount
                     inst.meshletInfo.z = 0;
                     inst.meshletInfo.w = 0;
                     instances.push_back(inst);
+                    
+                    s_GlobalMeshlets.insert(s_GlobalMeshlets.end(), cmd.mesh->GetMeshlets().begin(), cmd.mesh->GetMeshlets().end());
                 }
             }
 
             if (!instances.empty()) {
+                // --- QUICK HACK TO UPLOAD GEOMETRY TO GLOBAL BUFFERS ---
+                // For a real engine, we need a proper SubAllocator for these buffers
+                uint32_t vertexOffset = 0;
+                uint32_t indexOffset = 0;
+                for (const auto& cmd : s_CommandQueue.m_Commands) {
+                    if (cmd.mesh) {
+                        s_GlobalVertexBuffer->SetData(cmd.mesh->GetVertices().data(), cmd.mesh->GetVertices().size() * sizeof(float), vertexOffset * sizeof(float));
+                        s_GlobalIndexBuffer->SetData(cmd.mesh->GetIndices().data(), cmd.mesh->GetIndices().size() * sizeof(uint32_t), indexOffset * sizeof(uint32_t));
+                        vertexOffset += cmd.mesh->GetVertices().size();
+                        indexOffset += cmd.mesh->GetIndices().size();
+                    }
+                }
+
+                if (!s_GlobalMeshlets.empty()) {
+                    s_GlobalMeshletBuffer->SetData(s_GlobalMeshlets.data(), s_GlobalMeshlets.size() * sizeof(Meshlet), 0);
+                }
+                
                 s_GlobalInstanceBuffer->SetData(instances.data(), instances.size() * sizeof(InstanceData), 0);
                 
                 uint32_t zero = 0;
@@ -269,7 +290,7 @@ namespace lgt {
                     }
                 }
 
-                s_CullShader->SetInt("u_InstanceCount", (int)instances.size());
+                s_CullShader->SetUInt("u_InstanceCount", (uint32_t)instances.size());
 
                 s_GlobalMeshletBuffer->BindBase(0);
                 s_GlobalInstanceBuffer->BindBase(1);

@@ -61,6 +61,8 @@ namespace lgt {
         uint32_t GetVertexCount() const { return m_VertexCount; }
         const VertexLayout& GetLayout() const { return m_Layout; }
         const std::vector<Meshlet>& GetMeshlets() const { return m_Meshlets; }
+        const std::vector<float>& GetVertices() const { return m_Vertices; }
+        const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
 
     private:
         uint32_t m_VAO = 0;
@@ -70,6 +72,8 @@ namespace lgt {
         uint32_t m_VertexCount = 0;
         VertexLayout m_Layout;
         std::vector<Meshlet> m_Meshlets;
+        std::vector<float> m_Vertices;
+        std::vector<uint32_t> m_Indices;
 
         void SetupVAO();
     };

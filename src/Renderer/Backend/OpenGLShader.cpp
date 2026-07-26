@@ -171,6 +171,10 @@ namespace lgt {
         glProgramUniform1i(m_RendererID, GetUniformLocation(name), value);
     }
 
+    void OpenGLShader::SetUInt(const std::string& name, uint32_t value) {
+        glProgramUniform1ui(m_RendererID, GetUniformLocation(name), value);
+    }
+
     void OpenGLShader::SetIntArray(const std::string& name, int* values, uint32_t count) {
         glProgramUniform1iv(m_RendererID, GetUniformLocation(name), count, values);
     }

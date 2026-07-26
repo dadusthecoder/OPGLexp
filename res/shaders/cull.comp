@@ -5,8 +5,8 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct Meshlet {
     uint vertexOffset;
-    uint triangleOffset;
     uint vertexCount;
+    uint triangleOffset;
     uint triangleCount;
     vec4 bounds; // xyz = center, w = radius
 };
