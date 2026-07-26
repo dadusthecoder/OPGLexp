@@ -20,6 +20,7 @@ namespace lgt {
             case BufferUsage::StaticDraw: return GL_STATIC_DRAW;
             case BufferUsage::DynamicDraw: return GL_DYNAMIC_DRAW;
             case BufferUsage::StreamDraw: return GL_STREAM_DRAW;
+            case BufferUsage::PersistentMap: return GL_DYNAMIC_DRAW; // Or 0, usually ignored for persistent map as it uses flags directly
         }
         return 0;
     }

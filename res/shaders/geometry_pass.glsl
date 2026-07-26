@@ -1,11 +1,23 @@
 #type vertex
 #version 460 core
 
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec2 a_TexCoord;
+struct InstanceData {
+    mat4 Transform;
+    uint firstMeshlet;
+    uint meshletCount;
+    uint pad1;
+    uint pad2;
+};
 
-uniform mat4 u_Model;
+layout(std430, binding = 4) readonly buffer GlobalVertexBuffer {
+    float vertices[];
+};
+
+layout(std430, binding = 5) readonly buffer InstanceBuffer {
+    InstanceData instances[];
+};
+
+// OpenGL 4.6 provides gl_BaseInstance which we set to the instanceID in the compute shader!
 uniform mat4 u_ViewProjection;
 
 out vec3 v_FragPos;
@@ -13,10 +25,17 @@ out vec3 v_Normal;
 out vec2 v_TexCoord;
 
 void main() {
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    uint baseIndex = gl_VertexID * 8;
+    vec3 vPos = vec3(vertices[baseIndex], vertices[baseIndex+1], vertices[baseIndex+2]);
+    vec3 vNorm = vec3(vertices[baseIndex+3], vertices[baseIndex+4], vertices[baseIndex+5]);
+    vec2 vTex = vec2(vertices[baseIndex+6], vertices[baseIndex+7]);
+    
+    mat4 model = instances[gl_BaseInstance].Transform;
+    
+    vec4 worldPos = model * vec4(vPos, 1.0);
     v_FragPos = worldPos.xyz;
-    v_Normal = mat3(transpose(inverse(u_Model))) * a_Normal;
-    v_TexCoord = a_TexCoord;
+    v_Normal = mat3(transpose(inverse(model))) * vNorm;
+    v_TexCoord = vTex;
     gl_Position = u_ViewProjection * worldPos;
 }
 

@@ -1,9 +1,9 @@
 # GPU Driven Rendering
 
-- [ ] Compute shader image binding capabilities (`glBindImageTexture`)
-- [ ] SSBO persistent mapping for scene data
-- [ ] CPU-side Meshlet Generation (via `meshoptimizer`)
-- [ ] Upload Scene to large GPU buffers (Vertices, Indices, Meshlets, Instances)
-- [ ] GPU Frustum Culling Compute Shader
+- [x] Compute shader image binding capabilities (`glBindImageTexture`)
+- [x] SSBO persistent mapping for scene data
+- [x] CPU-side Meshlet Generation (via `meshoptimizer`)
+- [x] Upload Scene to large GPU buffers (Vertices, Indices, Meshlets, Instances)
+- [x] GPU Frustum Culling Compute Shader
 - [ ] GPU Occlusion Culling (Two-pass with depth pyramid)
-- [ ] Indirect Drawing (`glMultiDrawElementsIndirect`)
+- [x] Indirect Drawing (`glMultiDrawElementsIndirect`)

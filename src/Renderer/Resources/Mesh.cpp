@@ -3,8 +3,8 @@
 
 namespace lgt {
 
-    Mesh::Mesh(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const VertexLayout& layout)
-        : m_Layout(layout)
+    Mesh::Mesh(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const std::vector<Meshlet>& meshlets, const VertexLayout& layout)
+        : m_Layout(layout), m_Meshlets(meshlets)
     {
         m_VertexBuffer = Buffer::Create(BufferType::VertexBuffer, vertices.size() * sizeof(float), vertices.data());
         m_IndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data());

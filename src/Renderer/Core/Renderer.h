@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include "RenderCommandQueue.h"
+#include "GPUData.h"
 
 namespace lgt {
 
@@ -36,6 +37,11 @@ namespace lgt {
         static void ExecuteQueue();
 
         static RenderCommandQueue& GetQueue();
+        
+        // --- GPU-Driven Global Buffers ---
+        // (In a real engine, these would be managed by a Geometry/Scene manager)
+        static void UploadGlobalGeometry(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const std::vector<Meshlet>& meshlets);
+        
     private:
         static RenderCommandQueue s_CommandQueue;
     };

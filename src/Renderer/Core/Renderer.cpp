@@ -22,6 +22,20 @@ namespace lgt {
     static Framebuffer* s_FinalBuffer = nullptr;
     static std::vector<Renderer::LightData> s_Lights;
 
+    // GPU-Driven Global Buffers
+    static Buffer* s_GlobalVertexBuffer = nullptr;
+    static Buffer* s_GlobalIndexBuffer = nullptr;
+    static Buffer* s_GlobalMeshletBuffer = nullptr;
+    static Buffer* s_GlobalInstanceBuffer = nullptr;
+    static Buffer* s_GlobalIndirectDrawBuffer = nullptr;
+    static Buffer* s_GlobalDrawCountBuffer = nullptr;
+    static Shader* s_CullShader = nullptr;
+    
+    // For storing the loaded global geometry state
+    static std::vector<float> s_GlobalVertices;
+    static std::vector<uint32_t> s_GlobalIndices;
+    static std::vector<Meshlet> s_GlobalMeshlets;
+
     void Renderer::Init() {
         if (s_VAO == 0) {
             glGenVertexArrays(1, &s_VAO);
@@ -89,6 +103,22 @@ namespace lgt {
         if (!s_PostProcessShader) {
             s_PostProcessShader = Shader::Create("res/shaders/post_process.glsl");
         }
+
+        if (!s_CullShader) {
+            s_CullShader = Shader::Create("res/shaders/cull.comp");
+        }
+
+        // Initialize empty global buffers if not already created (UploadGlobalGeometry will resize them)
+        if (!s_GlobalInstanceBuffer) {
+            s_GlobalInstanceBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, 10000 * sizeof(InstanceData), nullptr, BufferUsage::DynamicDraw);
+        }
+        if (!s_GlobalIndirectDrawBuffer) {
+            s_GlobalIndirectDrawBuffer = Buffer::Create(BufferType::DrawIndirectBuffer, 10000 * sizeof(DrawCommand), nullptr, BufferUsage::DynamicDraw);
+        }
+        if (!s_GlobalDrawCountBuffer) {
+            uint32_t initialCount = 0;
+            s_GlobalDrawCountBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, sizeof(uint32_t), &initialCount, BufferUsage::DynamicDraw);
+        }
     }
 
     void Renderer::Shutdown() {
@@ -125,6 +155,16 @@ namespace lgt {
             delete s_PostProcessShader;
             s_PostProcessShader = nullptr;
         }
+        if (s_CullShader) {
+            delete s_CullShader;
+            s_CullShader = nullptr;
+        }
+        if (s_GlobalVertexBuffer) { delete s_GlobalVertexBuffer; s_GlobalVertexBuffer = nullptr; }
+        if (s_GlobalIndexBuffer) { delete s_GlobalIndexBuffer; s_GlobalIndexBuffer = nullptr; }
+        if (s_GlobalMeshletBuffer) { delete s_GlobalMeshletBuffer; s_GlobalMeshletBuffer = nullptr; }
+        if (s_GlobalInstanceBuffer) { delete s_GlobalInstanceBuffer; s_GlobalInstanceBuffer = nullptr; }
+        if (s_GlobalIndirectDrawBuffer) { delete s_GlobalIndirectDrawBuffer; s_GlobalIndirectDrawBuffer = nullptr; }
+        if (s_GlobalDrawCountBuffer) { delete s_GlobalDrawCountBuffer; s_GlobalDrawCountBuffer = nullptr; }
     }
 
     void Renderer::OnWindowResize(uint32_t width, uint32_t height) {
@@ -181,41 +221,116 @@ namespace lgt {
     void Renderer::ExecuteQueue() {
         s_CommandQueue.Sort();
         
+        bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
+
+        // --- 0. Prepare Indirect Draw Data ---
+        if (useGlobalBuffers) {
+            std::vector<InstanceData> instances;
+            instances.reserve(s_CommandQueue.m_Commands.size());
+
+            for (const auto& cmd : s_CommandQueue.m_Commands) {
+                if (cmd.mesh) {
+                    InstanceData inst;
+                    inst.Transform = cmd.transform;
+                    inst.firstMeshlet = 0;
+                    inst.meshletCount = s_GlobalMeshlets.size();
+                    instances.push_back(inst);
+                }
+            }
+
+            if (!instances.empty()) {
+                s_GlobalInstanceBuffer->SetData(instances.data(), instances.size() * sizeof(InstanceData), 0);
+                
+                uint32_t zero = 0;
+                s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);
+
+                s_CullShader->Bind();
+                s_CullShader->SetMat4("u_ViewProjection", s_ViewProjection);
+
+                glm::mat4 vp = s_ViewProjection;
+                glm::vec4 planes[6];
+                planes[0] = glm::vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]); // Left
+                planes[1] = glm::vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]); // Right
+                planes[2] = glm::vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]); // Bottom
+                planes[3] = glm::vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]); // Top
+                planes[4] = glm::vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2], vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]); // Near
+                planes[5] = glm::vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]); // Far
+
+                for (int i = 0; i < 6; i++) {
+                    float len = glm::length(glm::vec3(planes[i]));
+                    planes[i] /= len;
+                    s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", planes[i]);
+                }
+
+                s_CullShader->SetInt("u_InstanceCount", (int)instances.size());
+
+                s_GlobalMeshletBuffer->BindBase(0);
+                s_GlobalInstanceBuffer->BindBase(1);
+                s_GlobalIndirectDrawBuffer->BindBase(2);
+                s_GlobalDrawCountBuffer->BindBase(3);
+
+                glDispatchCompute((instances.size() + 63) / 64, 1, 1);
+                glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+            }
+        }
+
         // --- 1. Geometry Pass ---
         if (s_GBuffer) {
             s_GBuffer->Bind();
-            glClearColor(0, 0, 0, 1); // Clear G-Buffer with black to avoid weird normals/pbr on empty space
+            glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glEnable(GL_DEPTH_TEST);
             
-            for (const auto& cmd : s_CommandQueue.m_Commands) {
-                if (cmd.pipeline) cmd.pipeline->Bind();
+            if (useGlobalBuffers && !s_CommandQueue.m_Commands.empty() && s_CommandQueue.m_Commands[0].material) {
+                auto material = s_CommandQueue.m_Commands[0].material;
+                material->Bind();
+                // Bind dummy VAO just so OpenGL doesn't complain
+                glBindVertexArray(s_VAO);
                 
-                if (cmd.material) {
-                    cmd.material->Bind();
-                    cmd.material->GetShader()->SetMat4("u_Model", cmd.transform);
-                    cmd.material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
-                }
+                // Bind global SSBOs for bindless vertex pulling
+                s_GlobalVertexBuffer->BindBase(4);
+                s_GlobalInstanceBuffer->BindBase(5);
+                
+                s_GlobalIndexBuffer->Bind();
+                s_GlobalIndirectDrawBuffer->Bind();
+                
+                // Bind count buffer to GL_PARAMETER_BUFFER
+                glBindBuffer(GL_PARAMETER_BUFFER, s_GlobalDrawCountBuffer->GetRendererID());
+                
+                glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 10000, 0); // Need OpenGL 4.6
+                
+                glBindBuffer(GL_PARAMETER_BUFFER, 0);
+                s_GlobalIndirectDrawBuffer->Unbind();
+                s_GlobalIndexBuffer->Unbind();
+            } else {
+                // Legacy loop
+                for (const auto& cmd : s_CommandQueue.m_Commands) {
+                    if (cmd.pipeline) cmd.pipeline->Bind();
+                    
+                    if (cmd.material) {
+                        cmd.material->Bind();
+                        cmd.material->GetShader()->SetMat4("u_Model", cmd.transform);
+                        cmd.material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
+                    }
 
-                // Use Mesh's own VAO (has correct vertex layout)
-                if (cmd.mesh) {
-                    cmd.mesh->Bind();
-                    glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
-                    cmd.mesh->Unbind();
-                }
-                // Legacy fallback for raw buffer commands
-                else if (cmd.vertexBuffer) {
-                    glBindVertexArray(s_VAO);
-                    cmd.vertexBuffer->Bind();
-                    glEnableVertexAttribArray(0);
-                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-                    glEnableVertexAttribArray(1);
-                    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-                    glEnableVertexAttribArray(2);
-                    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-                    if (cmd.indexBuffer) {
-                        cmd.indexBuffer->Bind();
+                    if (cmd.mesh) {
+                        cmd.mesh->Bind();
                         glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
+                        cmd.mesh->Unbind();
+                    }
+                    else if (cmd.vertexBuffer) {
+                        glBindVertexArray(s_VAO);
+                        cmd.vertexBuffer->Bind();
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+                        glEnableVertexAttribArray(1);
+                        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+                        glEnableVertexAttribArray(2);
+                        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+                        if (cmd.indexBuffer) {
+                            cmd.indexBuffer->Bind();
+                            glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
+                        }
                     }
                 }
             }
@@ -292,6 +407,20 @@ namespace lgt {
 
     RenderCommandQueue& Renderer::GetQueue() {
         return s_CommandQueue;
+    }
+
+    void Renderer::UploadGlobalGeometry(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const std::vector<Meshlet>& meshlets) {
+        s_GlobalVertices = vertices;
+        s_GlobalIndices = indices;
+        s_GlobalMeshlets = meshlets;
+
+        if (s_GlobalVertexBuffer) delete s_GlobalVertexBuffer;
+        if (s_GlobalIndexBuffer) delete s_GlobalIndexBuffer;
+        if (s_GlobalMeshletBuffer) delete s_GlobalMeshletBuffer;
+
+        s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, vertices.size() * sizeof(float), vertices.data());
+        s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data());
+        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, meshlets.size() * sizeof(Meshlet), meshlets.data());
     }
 
 }

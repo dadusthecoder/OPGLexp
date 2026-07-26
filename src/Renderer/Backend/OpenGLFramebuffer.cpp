@@ -5,7 +5,7 @@
 namespace lgt {
 
     OpenGLFramebuffer::OpenGLFramebuffer(const FramebufferDescriptor& desc)
-        : m_Descriptor(desc), m_Width(desc.width), m_Height(desc.height) {
+        : m_Width(desc.width), m_Height(desc.height), m_Descriptor(desc) {
         Invalidate();
     }
 

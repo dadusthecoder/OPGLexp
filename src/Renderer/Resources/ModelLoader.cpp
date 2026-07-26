@@ -9,6 +9,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include "Scene/Components.h"
 #include "TextureLoader.h"
+#include "../Core/Renderer.h"
 
 namespace lgt {
 
@@ -29,7 +30,7 @@ namespace lgt {
     }
 
     // Optimize mesh geometry using meshoptimizer
-    static void OptimizeMesh(std::vector<float>& vertices, std::vector<uint32_t>& indices, uint32_t vertexStride) {
+    static void OptimizeMesh(std::vector<float>& vertices, std::vector<uint32_t>& indices, uint32_t vertexStride, std::vector<Meshlet>& outMeshlets) {
         size_t vertexCount = (vertices.size() * sizeof(float)) / vertexStride;
         size_t indexCount = indices.size();
 
@@ -43,7 +44,7 @@ namespace lgt {
         meshopt_optimizeOverdraw(optimizedIndices.data(), optimizedIndices.data(), indexCount,
                                  vertices.data(), vertexCount, vertexStride, 1.05f);
 
-        // 3. Vertex fetch optimization — reorder vertices for fetch efficiency
+        // 3. Vertex fetch optimization
         std::vector<float> optimizedVertices(vertices.size());
         std::vector<uint32_t> remap(vertexCount);
         meshopt_optimizeVertexFetchRemap(remap.data(), optimizedIndices.data(), indexCount, vertexCount);
@@ -51,7 +52,69 @@ namespace lgt {
         meshopt_remapIndexBuffer(optimizedIndices.data(), optimizedIndices.data(), indexCount, remap.data());
 
         vertices = std::move(optimizedVertices);
-        indices = std::move(optimizedIndices);
+
+        // 4. Meshlet generation
+        const size_t max_vertices = 64;
+        const size_t max_triangles = 124;
+        const float cone_weight = 0.0f; // Cone culling weight (not used yet)
+
+        size_t max_meshlets = meshopt_buildMeshletsBound(indexCount, max_vertices, max_triangles);
+        std::vector<meshopt_Meshlet> local_meshlets(max_meshlets);
+        std::vector<unsigned int> meshlet_vertices(max_meshlets * max_vertices);
+        std::vector<unsigned char> meshlet_triangles(max_meshlets * max_triangles * 3);
+
+        size_t meshlet_count = meshopt_buildMeshlets(
+            local_meshlets.data(),
+            meshlet_vertices.data(),
+            meshlet_triangles.data(),
+            optimizedIndices.data(),
+            indexCount,
+            vertices.data(),
+            vertexCount,
+            vertexStride,
+            max_vertices,
+            max_triangles,
+            cone_weight
+        );
+
+        // Build flat index buffer and our Meshlet structures
+        indices.clear();
+        indices.reserve(indexCount);
+        outMeshlets.reserve(meshlet_count);
+
+        for (size_t i = 0; i < meshlet_count; ++i) {
+            const auto& m = local_meshlets[i];
+            
+            Meshlet out_m;
+            out_m.vertexOffset = 0; // Not used for this method (indices are global)
+            out_m.vertexCount = m.vertex_count;
+            out_m.triangleOffset = static_cast<uint32_t>(indices.size() / 3);
+            out_m.triangleCount = m.triangle_count;
+            
+            // Compute bounding sphere
+            meshopt_Bounds bounds = meshopt_computeMeshletBounds(
+                &meshlet_vertices[m.vertex_offset],
+                &meshlet_triangles[m.triangle_offset],
+                m.triangle_count,
+                vertices.data(),
+                vertexCount,
+                vertexStride
+            );
+            
+            out_m.center[0] = bounds.center[0];
+            out_m.center[1] = bounds.center[1];
+            out_m.center[2] = bounds.center[2];
+            out_m.radius = bounds.radius;
+
+            outMeshlets.push_back(out_m);
+
+            // Flatten meshlet indices to global indices
+            for (unsigned int t = 0; t < m.triangle_count * 3; ++t) {
+                unsigned char local_index = meshlet_triangles[m.triangle_offset + t];
+                unsigned int global_index = meshlet_vertices[m.vertex_offset + local_index];
+                indices.push_back(global_index);
+            }
+        }
     }
 
     static void ProcessNode(aiNode* node, const aiScene* aiscene, Scene* scene, Entity parentEntity, 
@@ -105,9 +168,14 @@ namespace lgt {
             }
 
             // --- Automatic geometry optimization ---
-            OptimizeMesh(vertices, indices, 8 * sizeof(float));
+            std::vector<Meshlet> outMeshlets;
+            OptimizeMesh(vertices, indices, 8 * sizeof(float), outMeshlets);
 
-            Mesh* mesh = new Mesh(vertices, indices); // Uses default PBR layout
+            // Upload this mesh to the global geometry buffers
+            // (Note: In a full engine, we'd append and maintain offsets rather than overwriting)
+            Renderer::UploadGlobalGeometry(vertices, indices, outMeshlets);
+
+            Mesh* mesh = new Mesh(vertices, indices, outMeshlets); // Uses default PBR layout
             Material* material = new Material(defaultShader);
 
             // Extract PBR material properties from Assimp

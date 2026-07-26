@@ -5,6 +5,8 @@
 #include <cstdint>
 #include "../Core/Buffer.h"
 
+#include "../Core/GPUData.h"
+
 namespace lgt {
 
     // Describes a single vertex attribute in a vertex layout
@@ -46,6 +48,7 @@ namespace lgt {
     class Mesh {
     public:
         Mesh(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, 
+             const std::vector<Meshlet>& meshlets,
              const VertexLayout& layout = VertexLayout::PBR());
         ~Mesh();
 
@@ -57,6 +60,7 @@ namespace lgt {
         uint32_t GetIndexCount() const { return m_IndexCount; }
         uint32_t GetVertexCount() const { return m_VertexCount; }
         const VertexLayout& GetLayout() const { return m_Layout; }
+        const std::vector<Meshlet>& GetMeshlets() const { return m_Meshlets; }
 
     private:
         uint32_t m_VAO = 0;
@@ -65,6 +69,7 @@ namespace lgt {
         uint32_t m_IndexCount = 0;
         uint32_t m_VertexCount = 0;
         VertexLayout m_Layout;
+        std::vector<Meshlet> m_Meshlets;
 
         void SetupVAO();
     };
