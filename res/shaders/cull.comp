@@ -21,9 +21,7 @@ struct DrawCommand {
 
 struct InstanceData {
     mat4 Transform;
-    uint firstMeshlet;
-    uint meshletCount;
-    uint padding[2];
+    uvec4 meshletInfo; // x = first, y = count
 };
 
 layout(std430, binding = 0) readonly buffer MeshletBuffer {
@@ -61,8 +59,8 @@ void main() {
 
     InstanceData inst = instances[instanceID];
     
-    for (uint i = 0; i < inst.meshletCount; i++) {
-        uint meshletID = inst.firstMeshlet + i;
+    for (uint i = 0; i < inst.meshletInfo.y; ++i) {
+        uint meshletID = inst.meshletInfo.x + i;
         Meshlet m = meshlets[meshletID];
         
         // Transform center to world space (approximation for bounding sphere)

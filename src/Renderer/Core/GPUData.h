@@ -30,9 +30,7 @@ namespace lgt {
 
     struct InstanceData {
         glm::mat4 Transform;
-        uint32_t firstMeshlet;
-        uint32_t meshletCount;
-        uint32_t padding[2]; // Pad to 16 bytes alignment
+        glm::uvec4 meshletInfo; // x = firstMeshlet, y = meshletCount, z, w padding
     };
 
 }

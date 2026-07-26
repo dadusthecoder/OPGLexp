@@ -3,10 +3,7 @@
 
 struct InstanceData {
     mat4 Transform;
-    uint firstMeshlet;
-    uint meshletCount;
-    uint pad1;
-    uint pad2;
+    uvec4 meshletInfo;
 };
 
 layout(std430, binding = 4) readonly buffer GlobalVertexBuffer {

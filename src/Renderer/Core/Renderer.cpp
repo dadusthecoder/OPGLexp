@@ -233,8 +233,10 @@ namespace lgt {
                 if (cmd.mesh) {
                     InstanceData inst;
                     inst.Transform = cmd.transform;
-                    inst.firstMeshlet = 0;
-                    inst.meshletCount = s_GlobalMeshlets.size();
+                    inst.meshletInfo.x = 0; // firstMeshlet
+                    inst.meshletInfo.y = s_GlobalMeshlets.size(); // meshletCount
+                    inst.meshletInfo.z = 0;
+                    inst.meshletInfo.w = 0;
                     instances.push_back(inst);
                 }
             }
