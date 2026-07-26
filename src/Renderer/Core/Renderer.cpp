@@ -249,6 +249,7 @@ namespace lgt {
 
                 glm::mat4 vp = s_ViewProjection;
                 glm::vec4 planes[6];
+                static int frameCount = 0;
                 planes[0] = glm::vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]); // Left
                 planes[1] = glm::vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]); // Right
                 planes[2] = glm::vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]); // Bottom
@@ -260,6 +261,10 @@ namespace lgt {
                     float len = glm::length(glm::vec3(planes[i]));
                     planes[i] /= len;
                     s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", planes[i]);
+                    
+                    if (frameCount % 60 == 0) {
+                        std::cout << "Plane " << i << ": " << planes[i].x << ", " << planes[i].y << ", " << planes[i].z << "  w:" << planes[i].w << std::endl;
+                    }
                 }
 
                 s_CullShader->SetInt("u_InstanceCount", (int)instances.size());
@@ -275,7 +280,6 @@ namespace lgt {
                 // --- DEBUG: Read back draw count ---
                 uint32_t culledCount = 0;
                 glGetNamedBufferSubData(s_GlobalDrawCountBuffer->GetRendererID(), 0, sizeof(uint32_t), &culledCount);
-                static int frameCount = 0;
                 if (frameCount++ % 60 == 0) {
                     std::cout << "Meshlets passing culling: " << culledCount << " / " << instances.size() * s_GlobalMeshlets.size() << std::endl;
                 }

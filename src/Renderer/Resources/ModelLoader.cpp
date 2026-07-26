@@ -3,6 +3,7 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <spdlog/spdlog.h>
+#include <iostream>
 #include <meshoptimizer.h>
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -105,6 +106,10 @@ namespace lgt {
             out_m.bounds.y = bounds.center[1];
             out_m.bounds.z = bounds.center[2];
             out_m.bounds.w = bounds.radius;
+            
+            if (i == 0) {
+                std::cout << "Meshlet 0 Bounds: " << out_m.bounds.x << ", " << out_m.bounds.y << ", " << out_m.bounds.z << " R:" << out_m.bounds.w << std::endl;
+            }
 
             outMeshlets.push_back(out_m);
 
