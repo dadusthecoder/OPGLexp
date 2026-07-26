@@ -6,10 +6,17 @@ The long-term goal is to evolve this project into a **Physically Based Renderer 
 
 ---
 
-## Screenshots
-*(Note: These are early implementations meant to support learning and experimentation)*
-<img width="1918" height="1075" alt="Screenshot 2025-10-25 230854" src="https://github.com/user-attachments/assets/fef2ce93-eb4c-4744-adce-cf77586e2f7f" />
-<img width="1910" height="1045" alt="Screenshot 2026-07-14 010738" src="https://github.com/user-attachments/assets/636454a7-fe85-4e02-b8d3-df492528a1eb" />
+## Screenshots 
+*These are early implementations meant to support learning and experimentation.
+ this is form the renderer-old bracnh, i didnt wanted to thorw away the previous code base 
+ its good for rendering experements.*
+ 
+<img width="1909" height="1040" alt="Screenshot 2026-07-27 025127" src="https://github.com/user-attachments/assets/f78fb42a-137f-45d1-a780-89f91bab157e" />
+
+
+*This is the engine version of the renderer that i was trying to build althoug the architecture is completely different but i mostly copypasted the code so the undelying style is still the same.*
+
+<img width="1919" height="1079" alt="Screenshot 2026-07-27 021907" src="https://github.com/user-attachments/assets/9166b574-b289-4f2d-b26f-ba3e17de5713" />
 
 ---
 
