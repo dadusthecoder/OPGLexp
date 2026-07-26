@@ -15,9 +15,8 @@ namespace lgt {
         uint32_t vertexCount;
         uint32_t triangleCount;
 
-        // Bounding sphere for culling
-        float center[3];
-        float radius;
+        // Bounding sphere for culling: xyz = center, w = radius
+        glm::vec4 bounds;
     };
 
     // Standard OpenGL indirect draw command structure

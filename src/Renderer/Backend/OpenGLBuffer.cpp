@@ -73,7 +73,9 @@ namespace lgt {
     }
 
     void OpenGLBuffer::BindBase(uint32_t index) const {
-        glBindBufferBase(m_GLTarget, index, m_RendererID);
+        GLenum target = m_GLTarget;
+        if (target != GL_UNIFORM_BUFFER) target = GL_SHADER_STORAGE_BUFFER;
+        glBindBufferBase(target, index, m_RendererID);
     }
 
     void OpenGLBuffer::SetData(const void* data, uint32_t size, uint32_t offset) {

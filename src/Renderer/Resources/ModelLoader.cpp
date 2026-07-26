@@ -101,10 +101,10 @@ namespace lgt {
                 vertexStride
             );
             
-            out_m.center[0] = bounds.center[0];
-            out_m.center[1] = bounds.center[1];
-            out_m.center[2] = bounds.center[2];
-            out_m.radius = bounds.radius;
+            out_m.bounds.x = bounds.center[0];
+            out_m.bounds.y = bounds.center[1];
+            out_m.bounds.z = bounds.center[2];
+            out_m.bounds.w = bounds.radius;
 
             outMeshlets.push_back(out_m);
 
