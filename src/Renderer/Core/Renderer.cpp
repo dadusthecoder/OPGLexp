@@ -284,6 +284,7 @@ namespace lgt {
             if (useGlobalBuffers && !s_CommandQueue.m_Commands.empty() && s_CommandQueue.m_Commands[0].material) {
                 auto material = s_CommandQueue.m_Commands[0].material;
                 material->Bind();
+                material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
                 // Bind dummy VAO just so OpenGL doesn't complain
                 glBindVertexArray(s_VAO);
                 
