@@ -1,0 +1,82 @@
+#type compute
+#version 460 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Meshlet {
+    uint vertexOffset;
+    uint vertexCount;
+    uint triangleOffset;
+    uint triangleCount;
+    vec4 bounds; // xyz = center, w = radius
+};
+
+struct DrawCommand {
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    uint baseVertex;
+    uint baseInstance;
+};
+
+struct InstanceData {
+    mat4 Transform;
+    uvec4 meshletInfo; // x = first, y = count
+};
+
+layout(std430, binding = 0) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout(std430, binding = 1) readonly buffer InstanceBuffer {
+    InstanceData instances[];
+};
+
+layout(std430, binding = 2) writeonly buffer IndirectDrawBuffer {
+    DrawCommand drawCommands[];
+};
+
+layout(std430, binding = 3) buffer DrawCountBuffer {
+    uint drawCount;
+};
+
+// Removed u_ViewProjection
+uniform vec4 u_FrustumPlanes[6];
+uniform uint u_InstanceCount;
+
+bool IsVisible(vec3 center, float radius) {
+    for (int i = 0; i < 6; ++i) {
+        if (dot(u_FrustumPlanes[i].xyz, center) + u_FrustumPlanes[i].w < -radius) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void main() {
+    uint instanceID = gl_GlobalInvocationID.x;
+    if (instanceID >= u_InstanceCount) return;
+
+    InstanceData inst = instances[instanceID];
+    
+    for (uint i = 0; i < inst.meshletInfo.y; ++i) {
+        uint meshletID = inst.meshletInfo.x + i;
+        Meshlet m = meshlets[meshletID];
+        
+        // Transform center to world space (approximation for bounding sphere)
+        vec3 worldCenter = vec3(inst.Transform * vec4(m.bounds.xyz, 1.0));
+        
+        // Scale radius (assuming uniform scale for now)
+        float scale = length(vec3(inst.Transform[0])); 
+        float worldRadius = m.bounds.w * scale;
+
+        if (IsVisible(worldCenter, worldRadius)) {
+            uint drawIndex = atomicAdd(drawCount, 1);
+            drawCommands[drawIndex].count = m.triangleCount * 3;
+            drawCommands[drawIndex].instanceCount = 1;
+            drawCommands[drawIndex].firstIndex = m.triangleOffset * 3;
+            drawCommands[drawIndex].baseVertex = m.vertexOffset; 
+            drawCommands[drawIndex].baseInstance = instanceID;
+        }
+    }
+}

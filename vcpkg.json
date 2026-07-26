@@ -15,6 +15,9 @@
       ]
     },
     "imguizmo",
-    "spdlog"
+    "spdlog",
+    "entt",
+    "meshoptimizer",
+    "nlohmann-json"
   ]
 }

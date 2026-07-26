@@ -9,15 +9,52 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # Add source files
-file(GLOB_RECURSE SRC_FILES "src/*.cpp" "src/*.c")
+set(SOURCES
+    src/main.cpp
+    # Renderer Core
+    src/Renderer/Core/Renderer.cpp
+    src/Renderer/Core/RenderCommandQueue.cpp
+    src/Renderer/Core/RenderGraph.cpp
+    src/Renderer/Core/Shader.cpp
+    src/Renderer/Core/UIManager.cpp
+    # Renderer Resources
+    src/Renderer/Resources/Material.cpp
+    src/Renderer/Resources/Mesh.cpp
+    src/Renderer/Resources/ModelLoader.cpp
+    src/Renderer/Resources/TextureLoader.cpp
+    # Renderer Backend
+    src/Renderer/Backend/OpenGLShader.cpp
+    src/Renderer/Backend/OpenGLBuffer.cpp
+    src/Renderer/Backend/OpenGLTexture.cpp
+    src/Renderer/Backend/OpenGLFramebuffer.cpp
+    # Scene
+    src/Scene/Entity.cpp
+    src/Scene/Scene.cpp
+    src/Scene/SceneSerializer.cpp
+    # Helpers
+    src/Helpers/Logger.cpp
+    src/Helpers/DebugStats.cpp
+    # Core
+    src/Core/Input.cpp
+    # Editor
+    src/Editor/EditorLayer.cpp
+    # Vendor
+    src/Vendor/glad.c
+)
 
-add_executable(OPGLexp ${SRC_FILES})
+add_executable(OPGLexp ${SOURCES})
 
 # Include directories
-target_include_directories(OPGLexp PRIVATE src)
+target_include_directories(OPGLexp PRIVATE src src/Vendor)
 
-# Set compile definitions
-target_compile_definitions(OPGLexp PRIVATE LGT_DEBUG _CONSOLE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN SPDLOG_NO_FMT_STRING)
+# Set compile definitions based on configuration
+target_compile_definitions(OPGLexp PRIVATE 
+    $<$<CONFIG:Debug>:LGT_DEBUG>
+    $<$<CONFIG:Release>:LGT_DIST>
+    $<$<CONFIG:MinSizeRel>:LGT_DIST>
+    $<$<CONFIG:RelWithDebInfo>:LGT_RELEASE>
+    _CONSOLE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN SPDLOG_NO_FMT_STRING
+)
 
 # Find and link Vcpkg dependencies
 find_package(glfw3 CONFIG REQUIRED)
@@ -27,6 +64,9 @@ find_package(glm CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(EnTT CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 target_link_libraries(OPGLexp PRIVATE
     glfw
@@ -36,6 +76,9 @@ target_link_libraries(OPGLexp PRIVATE
     assimp::assimp
     spdlog::spdlog
     fmt::fmt
+    EnTT::EnTT
+    meshoptimizer::meshoptimizer
+    nlohmann_json::nlohmann_json
 )
 
 # Post-build task to copy 'res' directory to output directory
