@@ -63,7 +63,7 @@ int main() {
 
     // Load sphere model
     lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry_pass.glsl");
-    lgt::Entity sphereEntity = lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
+    lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
 
     // Directional Light
     lgt::Entity lightEntity = scene.CreateEntity("SunLight");
