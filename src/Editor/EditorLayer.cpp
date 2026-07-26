@@ -3,15 +3,58 @@
 #include "../Renderer/Core/Renderer.h"
 #include "../Renderer/Resources/Material.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <cstring>
 #include "../Helpers/Logger.h"
 #include "../Helpers/DebugStats.h"
+#include "../Core/Input.h"
+#include <GLFW/glfw3.h>
 
 namespace lgt {
 
     void EditorLayer::Init(Scene* scene) {
         m_Scene = scene;
         m_SelectedEntity = {};
+    }
+
+    void EditorLayer::OnUpdate(float ts) {
+        if (!m_ViewportFocused && !m_ViewportHovered) return;
+
+        if (Input::IsMouseButtonDown(1)) { // Right click
+            auto view = m_Scene->GetRegistry().view<TransformComponent, CameraComponent>();
+            for (auto entityID : view) {
+                auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entityID);
+                if (camera.primary) {
+                    float speed = 5.0f * ts;
+                    if (Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT)) speed *= 2.5f;
+
+                    // Compute forward, right, up
+                    glm::vec3 forward = glm::quat(transform.Rotation) * glm::vec3(0.0f, 0.0f, -1.0f);
+                    glm::vec3 right = glm::quat(transform.Rotation) * glm::vec3(1.0f, 0.0f, 0.0f);
+                    glm::vec3 up = glm::quat(transform.Rotation) * glm::vec3(0.0f, 1.0f, 0.0f);
+
+                    if (Input::IsKeyDown(GLFW_KEY_W)) transform.Translation += forward * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_S)) transform.Translation -= forward * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_A)) transform.Translation -= right * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_D)) transform.Translation += right * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_E)) transform.Translation += up * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_Q)) transform.Translation -= up * speed;
+
+                    glm::vec2 mouseDelta = Input::GetMouseDelta();
+                    float sensitivity = 0.002f;
+                    
+                    if (glm::length(mouseDelta) > 0.0f) {
+                        transform.Rotation.y -= mouseDelta.x * sensitivity; // Yaw
+                        transform.Rotation.x -= mouseDelta.y * sensitivity; // Pitch
+                        
+                        // Clamp pitch
+                        if (transform.Rotation.x > 1.57f) transform.Rotation.x = 1.57f;
+                        if (transform.Rotation.x < -1.57f) transform.Rotation.x = -1.57f;
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     void EditorLayer::OnImGuiRender() {
@@ -168,6 +211,10 @@ namespace lgt {
 
     void EditorLayer::DrawViewportPanel() {
         ImGui::Begin("Scene");
+        
+        m_ViewportFocused = ImGui::IsWindowFocused();
+        m_ViewportHovered = ImGui::IsWindowHovered();
+        
         ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
         static ImVec2 lastSize = ImVec2(0, 0);
         

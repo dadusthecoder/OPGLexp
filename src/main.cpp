@@ -124,6 +124,9 @@ int main() {
         scene.OnRender();
         lgt::Renderer::ExecuteQueue();
         lgt::Renderer::EndFrame();
+        
+        // --- Editor Update ---
+        editorLayer.OnUpdate(deltaTime);
 
         // --- Editor UI ---
         lgt::UIManager::BeginFrame();
