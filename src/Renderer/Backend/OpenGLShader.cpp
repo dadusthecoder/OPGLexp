@@ -1,0 +1,171 @@
+#include "OpenGLShader.h"
+#include "../../Vendor/glad.h"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <glm/gtc/type_ptr.hpp>
+#include <vector>
+
+namespace lgt {
+
+    static GLenum ShaderTypeFromString(const std::string& type) {
+        if (type == "vertex") return GL_VERTEX_SHADER;
+        if (type == "fragment" || type == "pixel") return GL_FRAGMENT_SHADER;
+        if (type == "compute") return GL_COMPUTE_SHADER;
+        return 0;
+    }
+
+    OpenGLShader::OpenGLShader(const std::string& filepath) {
+        std::ifstream in(filepath, std::ios::in | std::ios::binary);
+        std::string result;
+        if (in) {
+            in.seekg(0, std::ios::end);
+            size_t size = in.tellg();
+            if (size != -1) {
+                result.resize(size);
+                in.seekg(0, std::ios::beg);
+                in.read(&result[0], size);
+            }
+            else {
+                std::cout << "Could not read from file '" << filepath << "'" << std::endl;
+            }
+        }
+        else {
+            std::cout << "Could not open file '" << filepath << "'" << std::endl;
+        }
+
+        std::unordered_map<GLenum, std::string> shaderSources;
+        const char* typeToken = "#type";
+        size_t typeTokenLength = strlen(typeToken);
+        size_t pos = result.find(typeToken, 0); //Start of shader type declaration line
+        while (pos != std::string::npos) {
+            size_t eol = result.find_first_of("\r\n", pos);
+            size_t begin = pos + typeTokenLength + 1;
+            std::string type = result.substr(begin, eol - begin);
+
+            size_t nextLinePos = result.find_first_not_of("\r\n", eol);
+            pos = result.find(typeToken, nextLinePos);
+            shaderSources[ShaderTypeFromString(type)] = (pos == std::string::npos) ? result.substr(nextLinePos) : result.substr(nextLinePos, pos - nextLinePos);
+        }
+
+        GLuint program = glCreateProgram();
+        std::vector<GLenum> glShaderIDs;
+        
+        for (auto& kv : shaderSources) {
+            GLenum type = kv.first;
+            const std::string& source = kv.second;
+
+            GLuint shader = glCreateShader(type);
+            const GLchar* sourceCStr = source.c_str();
+            glShaderSource(shader, 1, &sourceCStr, 0);
+            glCompileShader(shader);
+
+            GLint isCompiled = 0;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);
+            if (isCompiled == GL_FALSE) {
+                GLint maxLength = 0;
+                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+
+                std::vector<GLchar> infoLog(maxLength);
+                glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
+                
+                glDeleteShader(shader);
+
+                std::cout << "Shader compilation failure!" << std::endl;
+                std::cout << infoLog.data() << std::endl;
+                break;
+            }
+
+            glAttachShader(program, shader);
+            glShaderIDs.push_back(shader);
+        }
+
+        m_RendererID = program;
+        glLinkProgram(program);
+
+        GLint isLinked = 0;
+        glGetProgramiv(program, GL_LINK_STATUS, (int*)&isLinked);
+        if (isLinked == GL_FALSE) {
+            GLint maxLength = 0;
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
+
+            std::vector<GLchar> infoLog(maxLength);
+            glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
+            
+            glDeleteProgram(program);
+            for (auto id : glShaderIDs) glDeleteShader(id);
+
+            std::cout << "Shader link failure!" << std::endl;
+            std::cout << infoLog.data() << std::endl;
+            return;
+        }
+
+        for (auto id : glShaderIDs) {
+            glDetachShader(program, id);
+            glDeleteShader(id);
+        }
+
+        // Extract name from filepath
+        auto lastSlash = filepath.find_last_of("/\\");
+        lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
+        auto lastDot = filepath.rfind('.');
+        auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
+        m_Name = filepath.substr(lastSlash, count);
+    }
+
+    OpenGLShader::~OpenGLShader() {
+        glDeleteProgram(m_RendererID);
+    }
+
+    void OpenGLShader::Bind() const {
+        glUseProgram(m_RendererID);
+    }
+
+    void OpenGLShader::Unbind() const {
+        glUseProgram(0);
+    }
+
+    void OpenGLShader::Dispatch(uint32_t numGroupsX, uint32_t numGroupsY, uint32_t numGroupsZ) {
+        glDispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
+    }
+
+    int OpenGLShader::GetUniformLocation(const std::string& name) {
+        if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
+            return m_UniformLocationCache[name];
+
+        int location = glGetUniformLocation(m_RendererID, name.c_str());
+        if (location == -1)
+            std::cout << "Warning: uniform '" << name << "' doesn't exist!" << std::endl;
+
+        m_UniformLocationCache[name] = location;
+        return location;
+    }
+
+    void OpenGLShader::SetInt(const std::string& name, int value) {
+        glProgramUniform1i(m_RendererID, GetUniformLocation(name), value);
+    }
+
+    void OpenGLShader::SetIntArray(const std::string& name, int* values, uint32_t count) {
+        glProgramUniform1iv(m_RendererID, GetUniformLocation(name), count, values);
+    }
+
+    void OpenGLShader::SetFloat(const std::string& name, float value) {
+        glProgramUniform1f(m_RendererID, GetUniformLocation(name), value);
+    }
+
+    void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value) {
+        glProgramUniform2f(m_RendererID, GetUniformLocation(name), value.x, value.y);
+    }
+
+    void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value) {
+        glProgramUniform3f(m_RendererID, GetUniformLocation(name), value.x, value.y, value.z);
+    }
+
+    void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value) {
+        glProgramUniform4f(m_RendererID, GetUniformLocation(name), value.x, value.y, value.z, value.w);
+    }
+
+    void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value) {
+        glProgramUniformMatrix4fv(m_RendererID, GetUniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
+    }
+}
