@@ -1,10 +1,10 @@
 #include "OpenGLShader.h"
 #include "../../Vendor/glad.h"
-#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
+#include "../../Helpers/Logger.h"
 
 #include <algorithm>
 
@@ -30,11 +30,11 @@ namespace lgt {
                 in.read(&result[0], size);
             }
             else {
-                std::cout << "Could not read from file '" << filepath << "'" << std::endl;
+                CORE_ERROR("Could not read from file '{0}'", filepath);
             }
         }
         else {
-            std::cout << "Could not open file '" << filepath << "'" << std::endl;
+            CORE_ERROR("Could not open file '{0}'", filepath);
         }
 
         std::unordered_map<GLenum, std::string> shaderSources;
@@ -89,10 +89,10 @@ namespace lgt {
                 if (maxLength > 0) {
                     std::vector<GLchar> infoLog(maxLength);
                     glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
-                    std::cout << "Shader compilation failure!" << std::endl;
-                    std::cout << infoLog.data() << std::endl;
+                    CORE_ERROR("Shader compilation failure!");
+                    CORE_ERROR("{0}", infoLog.data());
                 } else {
-                    std::cout << "Shader compilation failure! (No info log)" << std::endl;
+                    CORE_ERROR("Shader compilation failure! (No info log)");
                 }
                 
                 glDeleteShader(shader);
@@ -114,10 +114,10 @@ namespace lgt {
             if (maxLength > 0) {
                 std::vector<GLchar> infoLog(maxLength);
                 glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
-                std::cout << "Shader link failure!" << std::endl;
-                std::cout << infoLog.data() << std::endl;
+                CORE_ERROR("Shader link failure!");
+                CORE_ERROR("{0}", infoLog.data());
             } else {
-                std::cout << "Shader link failure! (No info log)" << std::endl;
+                CORE_ERROR("Shader link failure! (No info log)");
             }
             
             glDeleteProgram(program);
@@ -161,7 +161,7 @@ namespace lgt {
 
         int location = glGetUniformLocation(m_RendererID, name.c_str());
         if (location == -1)
-            std::cout << "Warning: uniform '" << name << "' doesn't exist!" << std::endl;
+            CORE_WARN("Warning: uniform '{0}' doesn't exist!", name);
 
         m_UniformLocationCache[name] = location;
         return location;

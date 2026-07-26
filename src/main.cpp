@@ -1,6 +1,5 @@
 #include "Vendor/glad.h"
 #include <GLFW/glfw3.h>
-#include <iostream>
 #include <vector>
 
 #include "Renderer/Core/Renderer.h"
@@ -16,6 +15,7 @@
 #include "Scene/Components.h"
 #include "Editor/EditorLayer.h"
 #include "Core/Input.h"
+#include "Helpers/Logger.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     lgt::Renderer::OnWindowResize(width, height);
@@ -24,6 +24,8 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 }
 
 int main() {
+    CORE_LOG_INIT();
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
@@ -31,7 +33,7 @@ int main() {
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "OPGLexp Engine", NULL, NULL);
     if (window == NULL) {
-        std::cout << "Failed to create GLFW window" << std::endl;
+        CORE_CRITICAL("Failed to create GLFW window");
         glfwTerminate();
         return -1;
     }
@@ -39,7 +41,7 @@ int main() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cout << "Failed to initialize GLAD" << std::endl;
+        CORE_CRITICAL("Failed to initialize GLAD");
         return -1;
     }
 

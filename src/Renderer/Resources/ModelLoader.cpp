@@ -2,7 +2,8 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
-#include <spdlog/spdlog.h>
+#include "../../Helpers/Logger.h"
+#include "../../Helpers/DebugStats.h"
 #include <iostream>
 #include <meshoptimizer.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -108,7 +109,7 @@ namespace lgt {
             out_m.bounds.w = bounds.radius;
             
             if (i == 0) {
-                std::cout << "Meshlet 0 Bounds: " << out_m.bounds.x << ", " << out_m.bounds.y << ", " << out_m.bounds.z << " R:" << out_m.bounds.w << std::endl;
+                DebugStats::Report("Meshlet 0 Bounds", "Center: (" + std::to_string(out_m.bounds.x) + ", " + std::to_string(out_m.bounds.y) + ", " + std::to_string(out_m.bounds.z) + ") R:" + std::to_string(out_m.bounds.w));
             }
 
             outMeshlets.push_back(out_m);

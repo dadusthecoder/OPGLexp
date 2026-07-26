@@ -8,6 +8,7 @@ Atlas Engine (currently OPGLexp) is an ongoing project to build an AAA-grade, GP
 - **Scene**: EnTT-based Entity Component System, C++ NativeScript behaviors, JSON Serialization.
 - **Renderer**: G-Buffer Deferred rendering, PBR, Directional/Point lights, ImGui integration.
 - **Editor**: Built-in editor with Scene Hierarchy, Properties Panel, Viewport, and Console.
+- **Helpers**: Zero-cost Debugging Stack (`LGT_DIST` macro), `spdlog` integration, and thread-safe `DebugStats` module for UI tracking.
 
 ## Current State
-The engine relies heavily on CPU-driven `glDrawElementsInstanced` calls. We are transitioning towards a GPU-driven pipeline, Render Graph architecture, and advanced features (DDGI, RTAO).
+The engine is transitioning to a fully GPU-driven pipeline (Meshlets, Compute Frustum Culling, MultiDraw) and modern debugging workflows.

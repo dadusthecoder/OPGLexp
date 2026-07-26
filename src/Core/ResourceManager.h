@@ -2,7 +2,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
-#include <spdlog/spdlog.h>
+#include "../Helpers/Logger.h"
 #include <typeinfo>
 
 namespace lgt {
@@ -23,7 +23,7 @@ namespace lgt {
                 return resource;
             }
 
-            spdlog::error("Failed to load resource: {}", path);
+            CORE_ERROR("Failed to load resource: {}", path);
             return nullptr;
         }
         

@@ -11,8 +11,8 @@ namespace lgt {
 
     struct Meshlet {
         uint32_t vertexOffset;
-        uint32_t triangleOffset;
         uint32_t vertexCount;
+        uint32_t triangleOffset;
         uint32_t triangleCount;
 
         // Bounding sphere for culling: xyz = center, w = radius

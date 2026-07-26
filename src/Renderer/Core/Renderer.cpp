@@ -4,6 +4,7 @@
 #include "../Resources/Mesh.h"
 #include "Framebuffer.h"
 #include <iostream>
+#include "../../Helpers/DebugStats.h"
 
 namespace lgt {
 
@@ -246,19 +247,6 @@ namespace lgt {
             }
 
             if (!instances.empty()) {
-                // --- QUICK HACK TO UPLOAD GEOMETRY TO GLOBAL BUFFERS ---
-                // For a real engine, we need a proper SubAllocator for these buffers
-                uint32_t vertexOffset = 0;
-                uint32_t indexOffset = 0;
-                for (const auto& cmd : s_CommandQueue.m_Commands) {
-                    if (cmd.mesh) {
-                        s_GlobalVertexBuffer->SetData(cmd.mesh->GetVertices().data(), cmd.mesh->GetVertices().size() * sizeof(float), vertexOffset * sizeof(float));
-                        s_GlobalIndexBuffer->SetData(cmd.mesh->GetIndices().data(), cmd.mesh->GetIndices().size() * sizeof(uint32_t), indexOffset * sizeof(uint32_t));
-                        vertexOffset += cmd.mesh->GetVertices().size();
-                        indexOffset += cmd.mesh->GetIndices().size();
-                    }
-                }
-
                 if (!s_GlobalMeshlets.empty()) {
                     s_GlobalMeshletBuffer->SetData(s_GlobalMeshlets.data(), s_GlobalMeshlets.size() * sizeof(Meshlet), 0);
                 }
@@ -272,7 +260,6 @@ namespace lgt {
 
                 glm::mat4 vp = s_ViewProjection;
                 glm::vec4 planes[6];
-                static int frameCount = 0;
                 planes[0] = glm::vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]); // Left
                 planes[1] = glm::vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]); // Right
                 planes[2] = glm::vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]); // Bottom
@@ -285,9 +272,7 @@ namespace lgt {
                     planes[i] /= len;
                     s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", planes[i]);
                     
-                    if (frameCount % 60 == 0) {
-                        std::cout << "Plane " << i << ": " << planes[i].x << ", " << planes[i].y << ", " << planes[i].z << "  w:" << planes[i].w << std::endl;
-                    }
+                    lgt::DebugStats::Report("Frustum Plane " + std::to_string(i), std::to_string(planes[i].x) + ", " + std::to_string(planes[i].y) + ", " + std::to_string(planes[i].z) + "  w:" + std::to_string(planes[i].w));
                 }
 
                 s_CullShader->SetUInt("u_InstanceCount", (uint32_t)instances.size());
@@ -303,9 +288,9 @@ namespace lgt {
                 // --- DEBUG: Read back draw count ---
                 uint32_t culledCount = 0;
                 glGetNamedBufferSubData(s_GlobalDrawCountBuffer->GetRendererID(), 0, sizeof(uint32_t), &culledCount);
-                if (frameCount++ % 60 == 0) {
-                    std::cout << "Meshlets passing culling: " << culledCount << " / " << instances.size() * s_GlobalMeshlets.size() << std::endl;
-                }
+                
+                lgt::DebugStats::Report("Meshlets Passing", std::to_string(culledCount) + " / " + std::to_string(instances.size() * s_GlobalMeshlets.size()));
+                lgt::DebugStats::Report("Total Instances", instances.size());
             }
         }
 

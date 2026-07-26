@@ -4,6 +4,8 @@
 #include "../Renderer/Resources/Material.h"
 #include <imgui.h>
 #include <cstring>
+#include "../Helpers/Logger.h"
+#include "../Helpers/DebugStats.h"
 
 namespace lgt {
 
@@ -17,6 +19,7 @@ namespace lgt {
         DrawPropertiesPanel();
         DrawViewportPanel();
         DrawConsolePanel();
+        DrawDebugPanel();
     }
 
     void EditorLayer::DrawHierarchyPanel() {
@@ -188,7 +191,57 @@ namespace lgt {
 
     void EditorLayer::DrawConsolePanel() {
         ImGui::Begin("Console");
-        ImGui::Text("Console ready.");
+        
+#ifndef LGT_DIST
+        auto consoleSink = Log::GetConsoleSink();
+        if (consoleSink) {
+            auto messages = consoleSink->get_messages();
+            for (const auto& msg : messages) {
+                ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+                if (msg.level == spdlog::level::trace) color = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+                else if (msg.level == spdlog::level::info) color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+                else if (msg.level == spdlog::level::warn) color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
+                else if (msg.level >= spdlog::level::err) color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextWrapped("%s", msg.text.c_str());
+                ImGui::PopStyleColor();
+            }
+            
+            // Auto-scroll to bottom if at the bottom
+            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+                ImGui::SetScrollHereY(1.0f);
+        }
+#else
+        ImGui::Text("Console disabled in Dist build.");
+#endif
+
+        ImGui::End();
+    }
+
+    void EditorLayer::DrawDebugPanel() {
+        ImGui::Begin("Debug Stats");
+        
+#ifndef LGT_DIST
+        auto stats = DebugStats::GetStats();
+        if (ImGui::BeginTable("DebugStatsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Name");
+            ImGui::TableSetupColumn("Value");
+            ImGui::TableHeadersRow();
+
+            for (const auto& stat : stats) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%s", stat.name.c_str());
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%s", stat.value.c_str());
+            }
+            ImGui::EndTable();
+        }
+#else
+        ImGui::Text("Debug Stats disabled in Dist build.");
+#endif
+
         ImGui::End();
     }
 

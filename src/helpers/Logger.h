@@ -9,8 +9,6 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-#define ENABLE_ASSERTIONS 1;
-
 struct ConsoleLogMessage {
     spdlog::level::level_enum level;
     std::string text;
@@ -62,12 +60,24 @@ private:
     static std::shared_ptr<ImGuiConsoleSink> s_ConsoleSink;
 };
 
-#define CORE_LOG_INIT()         Log::Init();
-#define CORE_TRACE(msg, ...)    Log::Core()->trace("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
-#define CORE_INFO(msg, ...)     Log::Core()->info("[{}] " msg, __func__, ##__VA_ARGS__)
-#define CORE_WARN(msg, ...)     Log::Core()->warn("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
-#define CORE_ERROR(msg, ...)    Log::Core()->error("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
-#define CORE_CRITICAL(msg, ...) Log::Core()->critical("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
+#ifndef LGT_DIST
+    #define CORE_LOG_INIT()         Log::Init();
+    #define CORE_TRACE(msg, ...)    Log::Core()->trace("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
+    #define CORE_INFO(msg, ...)     Log::Core()->info("[{}] " msg, __func__, ##__VA_ARGS__)
+    #define CORE_WARN(msg, ...)     Log::Core()->warn("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
+    #define CORE_ERROR(msg, ...)    Log::Core()->error("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
+    #define CORE_CRITICAL(msg, ...) Log::Core()->critical("[{}:{}] " msg, __func__, __LINE__, ##__VA_ARGS__)
+    #define ENABLE_ASSERTIONS 1
+#else
+    #define CORE_LOG_INIT()
+    #define CORE_TRACE(msg, ...)
+    #define CORE_INFO(msg, ...)
+    #define CORE_WARN(msg, ...)
+    #define CORE_ERROR(msg, ...)
+    #define CORE_CRITICAL(msg, ...)
+    // Disable assertions in dist build
+    #undef ENABLE_ASSERTIONS
+#endif
 
 #if defined(__clang__) || defined(__GNUC__)
 #define DEBUGBREAK() __builtin_trap()
@@ -99,5 +109,5 @@ private:
     }
 #else
 #define ASSERT(expr) (void)0
-#define ASSERT_MSG(expr, msg, ...)
+#define ASSERT_MSG(expr, msg, ...) (void)0
 #endif

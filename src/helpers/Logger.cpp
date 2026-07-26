@@ -115,15 +115,16 @@ std::shared_ptr<ImGuiConsoleSink> Log::GetConsoleSink() {
 }
 
 void Log::Init() {
+#ifndef LGT_DIST
     spdlog::init_thread_pool(8192, 1);
-
-    // Console sink with rate limiting and level-specific patterns
+    
+    // Create console sink
     auto baseConsoleSink        = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     auto rateLimitedConsoleSink = std::make_shared<RateLimitedSink>(baseConsoleSink, std::chrono::milliseconds(100));
     auto consoleSink            = std::make_shared<LevelPatternSink>(rateLimitedConsoleSink);
     consoleSink->set_level(spdlog::level::trace);
-
-    // Customize console patterns
+    
+    // Set format for console
     consoleSink->set_pattern_for_level(spdlog::level::trace, "%^%v%$");
     consoleSink->set_pattern_for_level(spdlog::level::debug, "%^%v%$");
     consoleSink->set_pattern_for_level(spdlog::level::info, "%^%v%$");
@@ -131,12 +132,12 @@ void Log::Init() {
     consoleSink->set_pattern_for_level(spdlog::level::err, "%^[%n]%v%$");
     consoleSink->set_pattern_for_level(spdlog::level::critical, "%^[%n]%v%$");
 
-    // File sink with detailed patterns (no rate limiting for files)
+    // Create file sink
     auto baseFileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/RenderX.log", true);
     auto fileSink     = std::make_shared<LevelPatternSink>(baseFileSink);
     fileSink->set_level(spdlog::level::trace);
-
-    // Detailed file patterns
+    
+    // Set format for file
     fileSink->set_pattern_for_level(spdlog::level::trace, "[%Y-%m-%d %T.%e] [T] [%n] %v");
     fileSink->set_pattern_for_level(spdlog::level::debug, "[%Y-%m-%d %T.%e] [D] [%n] [%!] %v");
     fileSink->set_pattern_for_level(spdlog::level::info, "[%Y-%m-%d %T.%e] [I] [%n] %v");
@@ -144,25 +145,30 @@ void Log::Init() {
     fileSink->set_pattern_for_level(spdlog::level::err, "[%Y-%m-%d %T.%e] [E] [thread %t] [%n] [%s:%#] [%!] %v");
     fileSink->set_pattern_for_level(spdlog::level::critical, "[%Y-%m-%d %T.%e] [C] [thread %t] [%n] [%s:%#] [%!] %v");
 
-    // ImGui Console Sink
+    // Create ImGui console sink
     s_ConsoleSink = std::make_shared<ImGuiConsoleSink>();
     s_ConsoleSink->set_level(spdlog::level::trace);
-    s_ConsoleSink->set_pattern("[%T] [%l] %v");
 
+    // Combine sinks
     s_CoreLogger = std::make_shared<spdlog::async_logger>(
         "RENDERX", spdlog::sinks_init_list{consoleSink, fileSink, s_ConsoleSink}, spdlog::thread_pool(), spdlog::async_overflow_policy::block);
 
     s_CoreLogger->set_level(spdlog::level::trace);
     s_CoreLogger->flush_on(spdlog::level::err);
     spdlog::register_logger(s_CoreLogger);
+
+    CORE_INFO("Logger initialized successfully.");
+#endif
 }
 
 void Log::Shutdown() {
+#ifndef LGT_DIST
     if (s_CoreLogger)
         s_CoreLogger->flush();
 
     s_CoreLogger.reset();
     spdlog::shutdown();
+#endif
 }
 
 void Log::LogStatus(const std::string& msg) {

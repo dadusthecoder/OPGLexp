@@ -31,6 +31,9 @@ set(SOURCES
     src/Scene/Entity.cpp
     src/Scene/Scene.cpp
     src/Scene/SceneSerializer.cpp
+    # Helpers
+    src/Helpers/Logger.cpp
+    src/Helpers/DebugStats.cpp
     # Core
     src/Core/Input.cpp
     # Editor
@@ -44,8 +47,14 @@ add_executable(OPGLexp ${SOURCES})
 # Include directories
 target_include_directories(OPGLexp PRIVATE src src/Vendor)
 
-# Set compile definitions
-target_compile_definitions(OPGLexp PRIVATE LGT_DEBUG _CONSOLE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN SPDLOG_NO_FMT_STRING)
+# Set compile definitions based on configuration
+target_compile_definitions(OPGLexp PRIVATE 
+    $<$<CONFIG:Debug>:LGT_DEBUG>
+    $<$<CONFIG:Release>:LGT_DIST>
+    $<$<CONFIG:MinSizeRel>:LGT_DIST>
+    $<$<CONFIG:RelWithDebInfo>:LGT_RELEASE>
+    _CONSOLE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN SPDLOG_NO_FMT_STRING
+)
 
 # Find and link Vcpkg dependencies
 find_package(glfw3 CONFIG REQUIRED)
