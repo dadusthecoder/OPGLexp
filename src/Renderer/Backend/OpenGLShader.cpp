@@ -86,14 +86,16 @@ namespace lgt {
             if (isCompiled == GL_FALSE) {
                 GLint maxLength = 0;
                 glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
-
-                std::vector<GLchar> infoLog(maxLength);
-                glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
+                if (maxLength > 0) {
+                    std::vector<GLchar> infoLog(maxLength);
+                    glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
+                    std::cout << "Shader compilation failure!" << std::endl;
+                    std::cout << infoLog.data() << std::endl;
+                } else {
+                    std::cout << "Shader compilation failure! (No info log)" << std::endl;
+                }
                 
                 glDeleteShader(shader);
-
-                std::cout << "Shader compilation failure!" << std::endl;
-                std::cout << infoLog.data() << std::endl;
                 break;
             }
 
@@ -109,15 +111,18 @@ namespace lgt {
         if (isLinked == GL_FALSE) {
             GLint maxLength = 0;
             glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
-
-            std::vector<GLchar> infoLog(maxLength);
-            glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
+            if (maxLength > 0) {
+                std::vector<GLchar> infoLog(maxLength);
+                glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
+                std::cout << "Shader link failure!" << std::endl;
+                std::cout << infoLog.data() << std::endl;
+            } else {
+                std::cout << "Shader link failure! (No info log)" << std::endl;
+            }
             
             glDeleteProgram(program);
             for (auto id : glShaderIDs) glDeleteShader(id);
 
-            std::cout << "Shader link failure!" << std::endl;
-            std::cout << infoLog.data() << std::endl;
             return;
         }
 
