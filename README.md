@@ -8,8 +8,7 @@ The long-term goal is to evolve this project into a **Physically Based Renderer 
 
 ## Screenshots
 *(Note: These are early implementations meant to support learning and experimentation)*
-<img width="1918" height="1075" alt="Screenshot 2025-10-25 230854" src="https://github.com/user-attachments/assets/fef2ce93-eb4c-4744-adce-cf77586e2f7f" />
-<img width="1910" height="1045" alt="Screenshot 2026-07-14 010738" src="https://github.com/user-attachments/assets/636454a7-fe85-4e02-b8d3-df492528a1eb" />
+<img width="1900" height="1040" alt="image" src="https://github.com/user-attachments/assets/1167ddd5-886b-4bd5-90b5-94e512cba9f9" />
 
 ---
 
