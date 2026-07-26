@@ -200,60 +200,9 @@ DockSpace         ID=0x08BD597D Window=0x1BBC0F80 Pos=0,0 Size=1920,1055 Split=X
     point2.params    = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
     scene.addLight(point2);
 
-    // Create a Cornell Box style room (without a roof so the sun can shine in!)
-    std::shared_ptr<lgt::SceneNode> roomNode = std::make_shared<lgt::SceneNode>();
-    roomNode->name = "Room";
-    
-    // Floor
-    auto floor = lgt::Primitives::CreatePlaneMesh("Floor", 10.0f, 10.0f, matWhiteIdx);
-    roomNode->meshes.push_back(floor);
-    
-    // Back Wall
-    auto backWall = lgt::Primitives::CreatePlaneMesh("BackWall", 10.0f, 10.0f, matWhiteIdx);
-    std::shared_ptr<lgt::SceneNode> bwNode = std::make_shared<lgt::SceneNode>();
-    bwNode->meshes.push_back(backWall);
-    bwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0, 10, -10)) * glm::rotate(glm::mat4(1.0f), 1.570796f, glm::vec3(1, 0, 0));
-    roomNode->children.push_back(bwNode); bwNode->parent = roomNode.get();
+    // Load Sponza scene
+    scene.LoadGltf("res/modles/sopnza_palace/Sponza_palace.gltf");
 
-    // Left Wall
-    auto leftWall = lgt::Primitives::CreatePlaneMesh("LeftWall", 10.0f, 10.0f, matRedIdx);
-    std::shared_ptr<lgt::SceneNode> lwNode = std::make_shared<lgt::SceneNode>();
-    lwNode->meshes.push_back(leftWall);
-    lwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(-10, 10, 0)) * glm::rotate(glm::mat4(1.0f), -1.570796f, glm::vec3(0, 0, 1));
-    roomNode->children.push_back(lwNode); lwNode->parent = roomNode.get();
-
-    // Right Wall
-    auto rightWall = lgt::Primitives::CreatePlaneMesh("RightWall", 10.0f, 10.0f, matGreenIdx);
-    std::shared_ptr<lgt::SceneNode> rwNode = std::make_shared<lgt::SceneNode>();
-    rwNode->meshes.push_back(rightWall);
-    rwNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(10, 10, 0)) * glm::rotate(glm::mat4(1.0f), 1.570796f, glm::vec3(0, 0, 1));
-    roomNode->children.push_back(rwNode); rwNode->parent = roomNode.get();
-
-    // Create a sphere
-    std::shared_ptr<lgt::SceneNode> sphereNode = std::make_shared<lgt::SceneNode>();
-    sphereNode->name = "Sphere";
-    sphereNode->meshes.push_back(lgt::Primitives::CreateSphereMesh("SphereMesh", 2.0f, 32, 32, matWhiteIdx));
-    sphereNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(-4.0f, 2.0f, 0.0f));
-    roomNode->children.push_back(sphereNode);
-    sphereNode->parent = roomNode.get();
-
-    // Create a cube
-    std::shared_ptr<lgt::SceneNode> cubeNode = std::make_shared<lgt::SceneNode>();
-    cubeNode->name = "Cube";
-    cubeNode->meshes.push_back(lgt::Primitives::CreateCubeMesh("CubeMesh", 3.0f, matWhiteIdx));
-    cubeNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(4.0f, 1.5f, 0.0f));
-    roomNode->children.push_back(cubeNode);
-    cubeNode->parent = roomNode.get();
-    
-    // Add light bulb (emissive sphere)
-    std::shared_ptr<lgt::SceneNode> lightNode = std::make_shared<lgt::SceneNode>();
-    lightNode->name = "Light Bulb";
-    lightNode->meshes.push_back(lgt::Primitives::CreateSphereMesh("LightMesh", 1.0f, 16, 16, matEmissiveIdx));
-    lightNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 8.0f, 0.0f));
-    roomNode->children.push_back(lightNode);
-    lightNode->parent = roomNode.get();
-
-    scene.AddRootNode(roomNode);
     scene.Update();
     scene.BuildAccelerationStructure();
 
