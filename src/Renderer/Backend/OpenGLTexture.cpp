@@ -21,19 +21,38 @@ namespace lgt {
         }
     }
 
+    static GLenum GetGLTextureTarget(TextureType type) {
+        switch (type) {
+            case TextureType::Texture2D: return GL_TEXTURE_2D;
+            case TextureType::TextureCube: return GL_TEXTURE_CUBE_MAP;
+            case TextureType::Texture3D: return GL_TEXTURE_3D;
+            case TextureType::Texture2DArray: return GL_TEXTURE_2D_ARRAY;
+            default: return GL_TEXTURE_2D;
+        }
+    }
+
     OpenGLTexture::OpenGLTexture(const TextureDescriptor& desc)
-        : m_Width(desc.width), m_Height(desc.height), m_BindlessHandle(0) {
+        : m_Width(desc.width), m_Height(desc.height), m_Depth(desc.depth), m_Type(desc.type), m_BindlessHandle(0) {
         
         GLenum dataType;
         GetGLFormats(desc.format, m_InternalFormat, m_DataFormat, dataType);
 
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
+        GLenum target = GetGLTextureTarget(m_Type);
+        glCreateTextures(target, 1, &m_RendererID);
+        
+        if (m_Type == TextureType::Texture2D || m_Type == TextureType::TextureCube) {
+            glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
+        } else if (m_Type == TextureType::Texture3D || m_Type == TextureType::Texture2DArray) {
+            glTextureStorage3D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height, m_Depth);
+        }
 
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        if (m_Type == TextureType::TextureCube || m_Type == TextureType::Texture3D) {
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, GL_REPEAT);
+        }
 
         // Create bindless handle
         m_BindlessHandle = glGetTextureHandleARB(m_RendererID);
@@ -51,13 +70,24 @@ namespace lgt {
         glBindTextureUnit(slot, m_RendererID);
     }
 
+    void OpenGLTexture::BindImage(uint32_t unit, uint32_t level, bool layered, uint32_t layer, TextureAccess access) const {
+        GLenum glAccess = GL_READ_ONLY;
+        if (access == TextureAccess::WriteOnly) glAccess = GL_WRITE_ONLY;
+        else if (access == TextureAccess::ReadWrite) glAccess = GL_READ_WRITE;
+        glBindImageTexture(unit, m_RendererID, level, layered ? GL_TRUE : GL_FALSE, layer, glAccess, m_InternalFormat);
+    }
+
     void OpenGLTexture::Unbind() const {
-        glBindTextureUnit(0, 0); // Not completely correct for DSA, but typical unbind
+        glBindTextureUnit(0, 0); 
     }
 
     void OpenGLTexture::SetData(void* data, uint32_t size) {
-        GLenum dataType; GetGLFormats(TextureFormat::RGBA8, m_InternalFormat, m_DataFormat, dataType); // simplified
-        glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
+        GLenum dataType; GetGLFormats(TextureFormat::RGBA8, m_InternalFormat, m_DataFormat, dataType); 
+        if (m_Type == TextureType::Texture2D || m_Type == TextureType::TextureCube) {
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
+        } else {
+            glTextureSubImage3D(m_RendererID, 0, 0, 0, 0, m_Width, m_Height, m_Depth, m_DataFormat, GL_UNSIGNED_BYTE, data);
+        }
     }
 
     Texture* Texture::Create(const TextureDescriptor& desc) {

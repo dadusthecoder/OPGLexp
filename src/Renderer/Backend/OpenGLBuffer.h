@@ -14,6 +14,10 @@ namespace lgt {
         
         virtual void SetData(const void* data, uint32_t size, uint32_t offset = 0) override;
         
+        virtual void* Map() override;
+        virtual void Unmap() override;
+        virtual void* GetMappedPointer() const override { return m_MappedPointer; }
+        
         virtual uint32_t GetSize() const override { return m_Size; }
         virtual uint32_t GetRendererID() const override { return m_RendererID; }
 
@@ -21,6 +25,7 @@ namespace lgt {
         uint32_t m_RendererID;
         uint32_t m_Size;
         uint32_t m_GLTarget;
+        void* m_MappedPointer = nullptr;
     };
 
 }

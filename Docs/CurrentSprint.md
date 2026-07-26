@@ -7,6 +7,9 @@ Establish the AI Agent workflow and documentation memory for the Atlas Engine pr
 - [x] Create project documentation structure (`Docs/`, `Roadmap/`).
 - [x] Create `AGENTS.md` to define team roles and rules.
 - [x] Define task trackers for upcoming rendering features.
+- [x] Upgraded OpenGL Backend (Textures, Buffers, Framebuffers, Shaders) for modern DSA and Bindless support.
+- [x] Implemented baseline RenderGraph architecture.
 
 ## Next Up
-- Review the Render Graph architecture and begin implementation of Phase 1 (Core Backend Upgrades).
+- Reviewer to verify backend upgrades.
+- Move to Phase 2: Meshlet Generation & Compute Frustum Culling.

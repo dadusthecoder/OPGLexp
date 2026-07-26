@@ -41,7 +41,8 @@ namespace lgt {
             Texture* tex = Texture::Create(texDesc);
 
             if (attachment.isDepth) {
-                glNamedFramebufferTexture(m_RendererID, GL_DEPTH_STENCIL_ATTACHMENT, tex->GetRendererID(), 0);
+                GLenum attachmentType = (attachment.format == TextureFormat::Depth32F) ? GL_DEPTH_ATTACHMENT : GL_DEPTH_STENCIL_ATTACHMENT;
+                glNamedFramebufferTexture(m_RendererID, attachmentType, tex->GetRendererID(), 0);
                 m_DepthAttachment = tex;
             } else {
                 glNamedFramebufferTexture(m_RendererID, GL_COLOR_ATTACHMENT0 + colorAttachmentIndex, tex->GetRendererID(), 0);
@@ -49,7 +50,7 @@ namespace lgt {
                 m_ColorAttachments.push_back(tex);
                 colorAttachmentIndex++;
             }
-        }
+        } // Closing brace for the for loop
 
         if (m_ColorAttachments.empty()) {
             glNamedFramebufferDrawBuffer(m_RendererID, GL_NONE);
@@ -61,6 +62,22 @@ namespace lgt {
         if (glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "Framebuffer is incomplete!" << std::endl;
         }
+    }
+
+    void OpenGLFramebuffer::AttachColorTexture(Texture* texture, uint32_t attachmentIndex, uint32_t mipLevel, uint32_t layer) {
+        if (!texture) return;
+        glNamedFramebufferTextureLayer(m_RendererID, GL_COLOR_ATTACHMENT0 + attachmentIndex, texture->GetRendererID(), mipLevel, layer);
+        if (attachmentIndex >= m_ColorAttachments.size()) {
+            m_ColorAttachments.resize(attachmentIndex + 1, nullptr);
+        }
+        m_ColorAttachments[attachmentIndex] = texture;
+    }
+
+    void OpenGLFramebuffer::AttachDepthTexture(Texture* texture, uint32_t mipLevel, uint32_t layer) {
+        if (!texture) return;
+        // Simplified: assuming Depth24Stencil8 for now, but could inspect texture format if exposed
+        glNamedFramebufferTextureLayer(m_RendererID, GL_DEPTH_STENCIL_ATTACHMENT, texture->GetRendererID(), mipLevel, layer);
+        m_DepthAttachment = texture;
     }
 
     void OpenGLFramebuffer::Bind() const {

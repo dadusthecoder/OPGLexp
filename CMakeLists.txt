@@ -14,6 +14,7 @@ set(SOURCES
     # Renderer Core
     src/Renderer/Core/Renderer.cpp
     src/Renderer/Core/RenderCommandQueue.cpp
+    src/Renderer/Core/RenderGraph.cpp
     src/Renderer/Core/Shader.cpp
     src/Renderer/Core/UIManager.cpp
     # Renderer Resources

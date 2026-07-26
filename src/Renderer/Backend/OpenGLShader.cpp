@@ -6,9 +6,12 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
 
+#include <algorithm>
+
 namespace lgt {
 
-    static GLenum ShaderTypeFromString(const std::string& type) {
+    static GLenum ShaderTypeFromString(std::string type) {
+        std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c){ return std::tolower(c); });
         if (type == "vertex") return GL_VERTEX_SHADER;
         if (type == "fragment" || type == "pixel") return GL_FRAGMENT_SHADER;
         if (type == "compute") return GL_COMPUTE_SHADER;
@@ -35,17 +38,35 @@ namespace lgt {
         }
 
         std::unordered_map<GLenum, std::string> shaderSources;
-        const char* typeToken = "#type";
-        size_t typeTokenLength = strlen(typeToken);
-        size_t pos = result.find(typeToken, 0); //Start of shader type declaration line
-        while (pos != std::string::npos) {
-            size_t eol = result.find_first_of("\r\n", pos);
-            size_t begin = pos + typeTokenLength + 1;
+        size_t pos = 0;
+        while (true) {
+            size_t typePos = result.find("#type", pos);
+            size_t shaderPos = result.find("#shader", pos);
+            
+            size_t foundPos = std::min(typePos, shaderPos);
+            if (foundPos == std::string::npos) break;
+            
+            size_t tokenLen = (foundPos == typePos) ? 5 : 7;
+            size_t eol = result.find_first_of("\r\n", foundPos);
+            size_t begin = foundPos + tokenLen + 1;
             std::string type = result.substr(begin, eol - begin);
+            
+            // Trim whitespace
+            type.erase(0, type.find_first_not_of(" \t\r\n"));
+            type.erase(type.find_last_not_of(" \t\r\n") + 1);
 
             size_t nextLinePos = result.find_first_not_of("\r\n", eol);
-            pos = result.find(typeToken, nextLinePos);
-            shaderSources[ShaderTypeFromString(type)] = (pos == std::string::npos) ? result.substr(nextLinePos) : result.substr(nextLinePos, pos - nextLinePos);
+            if (nextLinePos == std::string::npos) break; // empty source
+            
+            size_t nextTypePos = result.find("#type", nextLinePos);
+            size_t nextShaderPos = result.find("#shader", nextLinePos);
+            size_t nextFoundPos = std::min(nextTypePos, nextShaderPos);
+            
+            shaderSources[ShaderTypeFromString(type)] = (nextFoundPos == std::string::npos) 
+                ? result.substr(nextLinePos) 
+                : result.substr(nextLinePos, nextFoundPos - nextLinePos);
+                
+            pos = nextFoundPos;
         }
 
         GLuint program = glCreateProgram();

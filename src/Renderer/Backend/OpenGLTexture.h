@@ -9,6 +9,7 @@ namespace lgt {
         virtual ~OpenGLTexture();
 
         virtual void Bind(uint32_t slot = 0) const override;
+        virtual void BindImage(uint32_t unit, uint32_t level, bool layered, uint32_t layer, TextureAccess access) const override;
         virtual void Unbind() const override;
         virtual void SetData(void* data, uint32_t size) override;
 
@@ -19,7 +20,8 @@ namespace lgt {
 
     private:
         uint32_t m_RendererID;
-        uint32_t m_Width, m_Height;
+        uint32_t m_Width, m_Height, m_Depth;
+        TextureType m_Type;
         uint32_t m_InternalFormat, m_DataFormat;
         uint64_t m_BindlessHandle;
     };

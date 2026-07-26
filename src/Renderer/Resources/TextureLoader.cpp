@@ -8,7 +8,7 @@ namespace lgt {
     class LoadedGLTexture : public Texture {
     public:
         LoadedGLTexture(uint32_t width, uint32_t height, uint32_t rendererID)
-            : m_Width(width), m_Height(height), m_RendererID(rendererID) {
+            : m_RendererID(rendererID), m_Width(width), m_Height(height) {
             m_BindlessHandle = glGetTextureHandleARB(m_RendererID);
             glMakeTextureHandleResidentARB(m_BindlessHandle);
         }
@@ -22,6 +22,14 @@ namespace lgt {
 
         virtual void Bind(uint32_t slot = 0) const override {
             glBindTextureUnit(slot, m_RendererID);
+        }
+        
+        virtual void BindImage(uint32_t unit, uint32_t level, bool layered, uint32_t layer, TextureAccess access) const override {
+            GLenum glAccess = GL_READ_ONLY;
+            if (access == TextureAccess::WriteOnly) glAccess = GL_WRITE_ONLY;
+            else if (access == TextureAccess::ReadWrite) glAccess = GL_READ_WRITE;
+            // Assumes loaded textures are typical RGBA8 2D
+            glBindImageTexture(unit, m_RendererID, level, layered ? GL_TRUE : GL_FALSE, layer, glAccess, GL_RGBA8);
         }
 
         virtual void Unbind() const override {

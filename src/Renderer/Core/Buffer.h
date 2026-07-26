@@ -16,7 +16,8 @@ namespace lgt {
     enum class BufferUsage {
         StaticDraw = 0,
         DynamicDraw,
-        StreamDraw
+        StreamDraw,
+        PersistentMap
     };
 
     class Buffer {
@@ -28,6 +29,10 @@ namespace lgt {
         virtual void BindBase(uint32_t index) const = 0;
         
         virtual void SetData(const void* data, uint32_t size, uint32_t offset = 0) = 0;
+
+        virtual void* Map() = 0;
+        virtual void Unmap() = 0;
+        virtual void* GetMappedPointer() const = 0;
         
         virtual uint32_t GetSize() const = 0;
         virtual uint32_t GetRendererID() const = 0;

@@ -32,6 +32,9 @@ namespace lgt {
 
         virtual void Resize(uint32_t width, uint32_t height) = 0;
 
+        virtual void AttachColorTexture(Texture* texture, uint32_t attachmentIndex, uint32_t mipLevel = 0, uint32_t layer = 0) = 0;
+        virtual void AttachDepthTexture(Texture* texture, uint32_t mipLevel = 0, uint32_t layer = 0) = 0;
+
         virtual Texture* GetColorAttachment(uint32_t index = 0) const = 0;
         virtual Texture* GetDepthAttachment() const = 0;
 
