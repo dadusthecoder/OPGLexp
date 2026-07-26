@@ -3,6 +3,7 @@
 #include "../Resources/Material.h"
 #include "../Resources/Mesh.h"
 #include "Framebuffer.h"
+#include <iostream>
 
 namespace lgt {
 
@@ -245,7 +246,6 @@ namespace lgt {
                 s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);
 
                 s_CullShader->Bind();
-                s_CullShader->SetMat4("u_ViewProjection", s_ViewProjection);
 
                 glm::mat4 vp = s_ViewProjection;
                 glm::vec4 planes[6];
@@ -271,6 +271,14 @@ namespace lgt {
 
                 glDispatchCompute((instances.size() + 63) / 64, 1, 1);
                 glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+                // --- DEBUG: Read back draw count ---
+                uint32_t culledCount = 0;
+                glGetNamedBufferSubData(s_GlobalDrawCountBuffer->GetRendererID(), 0, sizeof(uint32_t), &culledCount);
+                static int frameCount = 0;
+                if (frameCount++ % 60 == 0) {
+                    std::cout << "Meshlets passing culling: " << culledCount << " / " << instances.size() * s_GlobalMeshlets.size() << std::endl;
+                }
             }
         }
 

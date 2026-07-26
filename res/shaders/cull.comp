@@ -42,7 +42,7 @@ layout(std430, binding = 3) buffer DrawCountBuffer {
     uint drawCount;
 };
 
-uniform mat4 u_ViewProjection;
+// Removed u_ViewProjection
 uniform vec4 u_FrustumPlanes[6];
 uniform uint u_InstanceCount;
 
