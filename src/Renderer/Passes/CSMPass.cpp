@@ -79,8 +79,8 @@ namespace lgt {
         glBindFramebuffer(GL_FRAMEBUFFER, s_FBO);
         glViewport(0, 0, s_Resolution, s_Resolution);
         glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
+        // Disable face culling to ensure single-sided geometry (like Sponza walls) cast shadows
+        glDisable(GL_CULL_FACE);
 
         for (int i = 0; i < 4; ++i) {
             glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, s_ShadowMapArray, 0, i);
@@ -93,6 +93,7 @@ namespace lgt {
             renderCallback(s_LightSpaceMatrices[i]);
         }
 
+        glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -198,7 +199,7 @@ namespace lgt {
             minZ -= 1000.0f;
             maxZ += 200.0f;
             
-            const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, minZ, maxZ);
+            const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
             s_LightSpaceMatrices[i] = lightProjection * lightView;
             
             lastSplitDist = splitDist;
