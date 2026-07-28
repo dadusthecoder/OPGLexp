@@ -21,5 +21,6 @@ namespace lgt {
         void DrawViewportPanel();
         void DrawConsolePanel();
         void DrawDebugPanel();
+        void DrawRendererSettingsPanel();
     };
 }

@@ -82,7 +82,6 @@ namespace lgt {
     }
 
     void OpenGLTexture::SetData(void* data, uint32_t size) {
-        GLenum dataType; GetGLFormats(TextureFormat::RGBA8, m_InternalFormat, m_DataFormat, dataType); 
         if (m_Type == TextureType::Texture2D || m_Type == TextureType::TextureCube) {
             glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
         } else {

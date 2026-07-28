@@ -10,7 +10,7 @@ namespace lgt {
     public:
         static void Init(uint32_t width, uint32_t height);
         static glm::vec2 GetJitter(int frameIndex);
-        static void Execute(uint32_t currentColorID, uint32_t velocityID, uint32_t depthID, int frameIndex);
+        static void Execute(uint32_t currentColorID, uint32_t velocityID, uint32_t depthID, int frameIndex, float blendFactor = 0.1f);
         static void Resize(uint32_t width, uint32_t height);
         static void Shutdown();
         static uint32_t GetResolvedTextureID();

@@ -1,3 +1,4 @@
+#type compute
 #version 460 core
 #include "include/common.glsl"
 #include "include/sampling.glsl"
@@ -15,6 +16,7 @@ uniform int   u_FrameIndex;
 uniform vec3  u_SunDirection;
 uniform vec3  u_SunColor;
 uniform float u_SunIntensity;
+
 
 struct ProbeRayData {
     vec4 radiance;   // xyz = radiance, w = unused

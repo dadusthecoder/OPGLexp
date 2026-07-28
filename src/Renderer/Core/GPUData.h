@@ -31,6 +31,13 @@ namespace lgt {
     struct InstanceData {
         glm::mat4 Transform;
         glm::uvec4 meshletInfo; // x = firstMeshlet, y = meshletCount, z, w padding
+        glm::vec4 color;        // xyz = albedo, w = unused
+        glm::vec4 pbr;          // x = metallic, y = roughness, z = ao, w = unused
+        
+        uint64_t albedoMapHandle;
+        uint64_t normalMapHandle;
+        uint64_t pbrMapHandle;
+        uint64_t padding;
     };
 
 }

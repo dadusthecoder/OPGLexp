@@ -17,7 +17,8 @@ namespace lgt {
         StaticDraw = 0,
         DynamicDraw,
         StreamDraw,
-        PersistentMap
+        PersistentMap,
+        StaticCopy
     };
 
     class Buffer {

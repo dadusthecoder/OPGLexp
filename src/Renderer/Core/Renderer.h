@@ -21,7 +21,11 @@ namespace lgt {
         static void SetClearColor(const glm::vec4& color);
         static void Clear();
 
+        static int GetFrameIndex();
+        static glm::vec2 GetJitter();
+
         static void* GetFinalColorBufferTextureID();
+        static void Present();
 
         struct LightData {
             glm::vec3 Position;
@@ -35,6 +39,27 @@ namespace lgt {
         static void SubmitLight(const LightData& light);
         static void Submit(const RenderCommand& command);
         static void ExecuteQueue();
+
+        static void SetRTAOEnabled(bool enabled);
+        static bool IsRTAOEnabled();
+
+        static void SetDDGIEnabled(bool enabled);
+        static bool IsDDGIEnabled();
+
+        static void SetMeshletCullingEnabled(bool enabled);
+        static bool IsMeshletCullingEnabled();
+
+        static void SetTAAEnabled(bool enabled);
+        static bool IsTAAEnabled();
+        static void SetTAABlendFactor(float factor);
+        static float GetTAABlendFactor();
+
+        static void SetBloomEnabled(bool enabled);
+        static bool IsBloomEnabled();
+        static void SetBloomThreshold(float threshold);
+        static float GetBloomThreshold();
+        static void SetBloomStrength(float strength);
+        static float GetBloomStrength();
 
         static RenderCommandQueue& GetQueue();
         

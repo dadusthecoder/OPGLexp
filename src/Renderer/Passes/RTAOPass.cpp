@@ -1,4 +1,5 @@
 #include "RTAOPass.h"
+#include "../../Helpers/Logger.h"
 #include "../../Vendor/glad.h"
 #include "BVHPass.h"
 #include <random>
@@ -14,12 +15,18 @@ namespace lgt {
     uint32_t  RTAOPass::s_Height = 0;
 
     void RTAOPass::Init(uint32_t width, uint32_t height) {
+        CORE_INFO("RTAOPass::Init start");
         s_Width = width;
         s_Height = height;
+        CORE_INFO("RTAOPass::Init creating RTAO shader");
         s_RTAOShader = Shader::CreateCompute("res/shaders/RTAO.comp");
+        CORE_INFO("RTAOPass::Init creating denoise shader");
         s_DenoiseShader = Shader::CreateCompute("res/shaders/rtao_denoise.comp");
+        CORE_INFO("RTAOPass::Init creating textures");
         CreateTextures();
+        CORE_INFO("RTAOPass::Init generating noise");
         GenerateBlueNoise();
+        CORE_INFO("RTAOPass::Init end");
     }
 
     void RTAOPass::CreateTextures() {
@@ -62,10 +69,12 @@ namespace lgt {
         s_BlueNoiseTex->SetData(noiseData, sizeof(noiseData));
     }
 
-    void RTAOPass::Execute(uint32_t gDepthID, uint32_t gNormalID, float radius, int numRays, int frameIndex) {
+    void RTAOPass::Execute(uint32_t gDepthID, uint32_t gNormalID, float radius, int numRays, int frameIndex, const glm::mat4& invViewProjection) {
         if (!BVHPass::IsReady()) return;
 
         s_RTAOShader->Bind();
+        s_RTAOShader->SetMat4("u_InvViewProjection", invViewProjection);
+        s_RTAOShader->SetFloat2("u_Resolution", glm::vec2((float)s_Width, (float)s_Height));
         s_RTAOShader->SetFloat("u_Radius", radius);
         s_RTAOShader->SetInt("u_NumRays", numRays);
         s_RTAOShader->SetInt("u_FrameIndex", frameIndex);
@@ -89,6 +98,7 @@ namespace lgt {
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
         s_DenoiseShader->Bind();
+        s_DenoiseShader->SetFloat2("u_Resolution", glm::vec2((float)s_Width, (float)s_Height));
         s_RawAO->BindImage(0, 0, false, 0, TextureAccess::ReadOnly);
         s_DenoisedAO->BindImage(1, 0, false, 0, TextureAccess::WriteOnly);
         

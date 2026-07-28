@@ -46,11 +46,11 @@ namespace lgt {
         s_TraceShader->SetInt("u_RaysPerProbe", s_RaysPerProbe);
         s_TraceShader->SetInt("u_TotalProbes", s_TotalProbes);
         s_TraceShader->SetInt("u_FrameIndex", frameIndex);
-        s_TraceShader->SetFloat3("u_SunDir", sunDir);
+        s_TraceShader->SetFloat3("u_SunDirection", sunDir);
         s_TraceShader->SetFloat3("u_SunColor", sunColor);
         s_TraceShader->SetFloat("u_SunIntensity", sunIntensity);
-        int traceGridSize[3] = {s_GridSize.x, s_GridSize.y, s_GridSize.z};
-        s_TraceShader->SetIntArray("u_GridSize", traceGridSize, 3);
+        s_TraceShader->SetFloat("u_MaxRayDistance", 50.0f);
+        s_TraceShader->SetInt3("u_ProbeGridSize", glm::ivec3(s_GridSize.x, s_GridSize.y, s_GridSize.z));
         s_TraceShader->SetFloat3("u_ProbeOrigin", s_ProbeOrigin);
         s_TraceShader->SetFloat3("u_ProbeSpacing", s_ProbeSpacing);
 
@@ -62,13 +62,14 @@ namespace lgt {
 
         s_UpdateShader->Bind();
         s_UpdateShader->SetInt("u_RaysPerProbe", s_RaysPerProbe);
-        int gridSize[3] = {s_GridSize.x, s_GridSize.y, s_GridSize.z};
-        s_UpdateShader->SetIntArray("u_GridSize", gridSize, 3);
+        s_UpdateShader->SetFloat("u_Hysteresis", 0.97f);
+        s_UpdateShader->SetInt("u_IrradianceTexSize", 8);
+        s_UpdateShader->SetInt3("u_ProbeGridSize", glm::ivec3(s_GridSize.x, s_GridSize.y, s_GridSize.z));
         
         s_RayDataBuffer->BindBase(8);
         s_IrradianceAtlas->BindImage(0, 0, false, 0, TextureAccess::ReadWrite);
         
-        glDispatchCompute(s_GridSize.x * s_GridSize.y, s_GridSize.z, 1);
+        glDispatchCompute(s_GridSize.x, s_GridSize.y, s_GridSize.z);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     }
 

@@ -8,7 +8,7 @@ namespace lgt {
     class RTAOPass {
     public:
         static void Init(uint32_t width, uint32_t height);
-        static void Execute(uint32_t gDepthID, uint32_t gNormalID, float radius, int numRays, int frameIndex);
+        static void Execute(uint32_t gDepthID, uint32_t gNormalID, float radius, int numRays, int frameIndex, const glm::mat4& invViewProjection);
         static void Resize(uint32_t width, uint32_t height);
         static void Shutdown();
         static uint32_t GetAOTextureID();

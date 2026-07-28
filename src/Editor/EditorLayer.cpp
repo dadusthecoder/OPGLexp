@@ -37,8 +37,8 @@ namespace lgt {
                     if (Input::IsKeyDown(GLFW_KEY_S)) transform.Translation -= forward * speed;
                     if (Input::IsKeyDown(GLFW_KEY_A)) transform.Translation -= right * speed;
                     if (Input::IsKeyDown(GLFW_KEY_D)) transform.Translation += right * speed;
-                    if (Input::IsKeyDown(GLFW_KEY_E)) transform.Translation += up * speed;
-                    if (Input::IsKeyDown(GLFW_KEY_Q)) transform.Translation -= up * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_SPACE)) transform.Translation += up * speed;
+                    if (Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL)) transform.Translation -= up * speed;
 
                     glm::vec2 mouseDelta = Input::GetMouseDelta();
                     float sensitivity = 0.002f;
@@ -63,6 +63,58 @@ namespace lgt {
         DrawViewportPanel();
         DrawConsolePanel();
         DrawDebugPanel();
+        DrawRendererSettingsPanel();
+    }
+
+    void EditorLayer::DrawRendererSettingsPanel() {
+        ImGui::Begin("Renderer Settings");
+
+        bool rtaoEnabled = Renderer::IsRTAOEnabled();
+        if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
+            Renderer::SetRTAOEnabled(rtaoEnabled);
+        }
+
+        bool ddgiEnabled = Renderer::IsDDGIEnabled();
+        if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
+            Renderer::SetDDGIEnabled(ddgiEnabled);
+        }
+
+        bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
+        if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
+            Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
+        }
+        
+        ImGui::Separator();
+        
+        bool taaEnabled = Renderer::IsTAAEnabled();
+        if (ImGui::Checkbox("Enable TAA", &taaEnabled)) {
+            Renderer::SetTAAEnabled(taaEnabled);
+        }
+        if (taaEnabled) {
+            float blend = Renderer::GetTAABlendFactor();
+            if (ImGui::SliderFloat("TAA Blend Factor", &blend, 0.01f, 1.0f)) {
+                Renderer::SetTAABlendFactor(blend);
+            }
+        }
+        
+        ImGui::Separator();
+        
+        bool bloomEnabled = Renderer::IsBloomEnabled();
+        if (ImGui::Checkbox("Enable Bloom", &bloomEnabled)) {
+            Renderer::SetBloomEnabled(bloomEnabled);
+        }
+        if (bloomEnabled) {
+            float thresh = Renderer::GetBloomThreshold();
+            if (ImGui::SliderFloat("Bloom Threshold", &thresh, 0.0f, 10.0f)) {
+                Renderer::SetBloomThreshold(thresh);
+            }
+            float strength = Renderer::GetBloomStrength();
+            if (ImGui::SliderFloat("Bloom Strength", &strength, 0.0f, 1.0f)) {
+                Renderer::SetBloomStrength(strength);
+            }
+        }
+
+        ImGui::End();
     }
 
     void EditorLayer::DrawHierarchyPanel() {
@@ -269,6 +321,20 @@ namespace lgt {
     void EditorLayer::DrawDebugPanel() {
         ImGui::Begin("Debug Stats");
         
+        bool rtaoEnabled = Renderer::IsRTAOEnabled();
+        if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
+            Renderer::SetRTAOEnabled(rtaoEnabled);
+        }
+        bool ddgiEnabled = Renderer::IsDDGIEnabled();
+        if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
+            Renderer::SetDDGIEnabled(ddgiEnabled);
+        }
+        bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
+        if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
+            Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
+        }
+        ImGui::Separator();
+
 #ifndef LGT_DIST
         auto stats = DebugStats::GetStats();
         if (ImGui::BeginTable("DebugStatsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {

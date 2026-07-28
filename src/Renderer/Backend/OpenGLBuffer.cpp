@@ -21,6 +21,7 @@ namespace lgt {
             case BufferUsage::DynamicDraw: return GL_DYNAMIC_DRAW;
             case BufferUsage::StreamDraw: return GL_STREAM_DRAW;
             case BufferUsage::PersistentMap: return GL_DYNAMIC_DRAW; // Or 0, usually ignored for persistent map as it uses flags directly
+            case BufferUsage::StaticCopy: return GL_STATIC_COPY;
         }
         return 0;
     }

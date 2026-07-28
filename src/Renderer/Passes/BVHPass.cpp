@@ -23,11 +23,11 @@ namespace lgt {
         }
 
         if (!nodes.empty()) {
-            s_BVHBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, nodes.size() * sizeof(BVHNode), nodes.data());
+            s_BVHBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, nodes.size() * sizeof(BVHNode), nodes.data(), BufferUsage::StaticCopy);
         }
         
         if (!triangles.empty()) {
-            s_TriBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, triangles.size() * sizeof(BVHTriangle), triangles.data());
+            s_TriBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, triangles.size() * sizeof(BVHTriangle), triangles.data(), BufferUsage::StaticCopy);
         }
 
         s_Ready = true;

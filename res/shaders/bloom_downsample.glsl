@@ -15,6 +15,8 @@ out vec4 o_Color;
 
 uniform sampler2D u_Source;
 uniform vec2      u_SrcTexelSize;  // 1/resolution
+uniform float     u_Threshold;
+uniform int       u_MipLevel;
 
 void main() {
     vec2 uv = v_TexCoord;
@@ -35,5 +37,13 @@ void main() {
     vec3 l = texture(u_Source, vec2(uv.x-x,   uv.y-y  )).rgb;
     vec3 m = texture(u_Source, vec2(uv.x+x,   uv.y-y  )).rgb;
     vec3 result = e*0.125 + (a+c+g+i)*0.03125 + (b+d+f+h)*0.0625 + (j+k+l+m)*0.125;
+    
+    if (u_MipLevel == 0) {
+        float brightness = max(result.r, max(result.g, result.b));
+        float contribution = max(0.0, brightness - u_Threshold);
+        contribution /= max(brightness, 0.00001);
+        result *= contribution;
+    }
+    
     o_Color = vec4(result, 1.0);
 }

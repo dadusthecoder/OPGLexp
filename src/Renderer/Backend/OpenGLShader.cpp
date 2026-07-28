@@ -193,8 +193,11 @@ namespace lgt {
             return m_UniformLocationCache[name];
 
         int location = glGetUniformLocation(m_RendererID, name.c_str());
-        if (location == -1)
-            CORE_WARN("Warning: uniform '{}' doesn't exist!", name);
+        if (location == -1) {
+            // Unused uniforms are naturally optimized out. Downgrade to TRACE/DEBUG or remove entirely.
+            m_UniformLocationCache[name] = location;
+            return location;
+        }
 
         m_UniformLocationCache[name] = location;
         return location;
@@ -202,6 +205,10 @@ namespace lgt {
 
     void OpenGLShader::SetInt(const std::string& name, int value) {
         glProgramUniform1i(m_RendererID, GetUniformLocation(name), value);
+    }
+
+    void OpenGLShader::SetInt3(const std::string& name, const glm::ivec3& value) {
+        glProgramUniform3i(m_RendererID, GetUniformLocation(name), value.x, value.y, value.z);
     }
 
     void OpenGLShader::SetUInt(const std::string& name, uint32_t value) {

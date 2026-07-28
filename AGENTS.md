@@ -92,6 +92,15 @@ Before committing, ensure:
 6. No OpenGL runtime errors.
 7. No new compiler warnings.
 
+## AI Debugging Protocol
+
+When encountering a crash, segfault, or undefined behavior during development:
+1. **DO NOT** try to guess the issue via blind prints immediately.
+2. **MUST USE** the provided debug script: `scripts/debug.py` using your `run_command` tool (e.g. `python scripts/debug.py`).
+3. The script will automatically launch the engine under LLDB, collect the backtrace and sanitizer outputs, and save them to `debug_crash.log`.
+4. Read `debug_crash.log` to identify the precise line and error causing the crash before attempting fixes.
+5. If the script fails (e.g. LLDB DLLs missing), **only then** fallback to binary searching with `CORE_INFO`.
+
 ## Definition of Done
 
 A task is complete only when:

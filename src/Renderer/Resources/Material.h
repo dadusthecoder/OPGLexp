@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "../Core/Shader.h"
 #include "../Core/Texture.h"
+#include <memory>
 
 namespace lgt {
 
@@ -19,10 +20,10 @@ namespace lgt {
         float Roughness = 0.5f;
 
         // Base textures (optional)
-        Texture* AlbedoMap = nullptr;
-        Texture* NormalMap = nullptr;
-        Texture* MetallicMap = nullptr;
-        Texture* RoughnessMap = nullptr;
+        std::shared_ptr<Texture> AlbedoMap = nullptr;
+        std::shared_ptr<Texture> NormalMap = nullptr;
+        std::shared_ptr<Texture> MetallicMap = nullptr;
+        std::shared_ptr<Texture> RoughnessMap = nullptr;
 
         Shader* GetShader() const { return m_Shader; }
 

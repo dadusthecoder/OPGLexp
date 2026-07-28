@@ -8,6 +8,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Use static runtime library for MSVC/clang-cl
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Set output directories based on build configuration
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin/Debug")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin/Release")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/bin/MinSizeRel")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin/RelWithDebInfo")
+
 # Add source files
 set(SOURCES
     src/main.cpp
@@ -63,6 +69,11 @@ target_compile_definitions(OPGLexp PRIVATE
     $<$<CONFIG:MinSizeRel>:LGT_DIST>
     $<$<CONFIG:RelWithDebInfo>:LGT_RELEASE>
     _CONSOLE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN SPDLOG_NO_FMT_STRING
+)
+
+# Compiler flags for Debug build
+target_compile_options(OPGLexp PRIVATE 
+    $<$<CONFIG:Debug>:-g -O0>
 )
 
 # Find and link Vcpkg dependencies

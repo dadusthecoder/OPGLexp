@@ -16,6 +16,7 @@ in  vec2 v_TexCoord;
 out vec4 o_Color;
 
 uniform sampler2D u_HDRBuffer;
+uniform sampler2D u_BloomTexture;
 uniform float u_Exposure;
 
 vec3 ACESFilm(vec3 x) {
@@ -25,6 +26,10 @@ vec3 ACESFilm(vec3 x) {
 
 void main() {
     vec3 hdr = texture(u_HDRBuffer, v_TexCoord).rgb;
+    vec3 bloom = texture(u_BloomTexture, v_TexCoord).rgb;
+    
+    hdr += bloom;
+    
     vec3 exposed  = hdr * u_Exposure;
     vec3 tonemapped = ACESFilm(exposed);
     vec3 gamma = pow(tonemapped, vec3(1.0 / 2.2));

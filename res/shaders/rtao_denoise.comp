@@ -1,3 +1,4 @@
+#type compute
 #version 460 core
 #include "include/common.glsl"
 
@@ -5,8 +6,8 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 uniform sampler2D u_gDepth;
 uniform sampler2D u_gNormal;
-layout(r8)  readonly  uniform image2D u_AOInput;
-layout(r8)  writeonly uniform image2D u_AOOutput;
+layout(r8, binding = 0) readonly  uniform image2D u_AOInput;
+layout(r8, binding = 1) writeonly uniform image2D u_AOOutput;
 uniform vec2 u_Resolution;
 uniform mat4 u_InvViewProjection;
 

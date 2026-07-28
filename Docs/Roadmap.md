@@ -4,11 +4,13 @@ This document provides a high-level overview of our development goals.
 
 ## Near Term
 - GPU-driven pipeline transition (meshlets, culling, indirect drawing).
+- **Static & Dynamic Geometry Separation (Dual-pipeline, optimized static SSBOs).**
+- **Silhouette Parallax Occlusion Mapping (SPOM) for Crimson Desert-style depth.**
 - Render Graph architecture for pass management and transient resources.
 - Integration of existing advanced compute shaders (DDGI, RTAO, Light Culling).
 
 ## Mid Term
-- Advanced Animation System (skeletal animation, compute skinning).
+- Advanced Animation System (skeletal animation, compute skinning, Dynamic Geometry).
 - Audio Engine integration.
 - Advanced Physics integration.
 

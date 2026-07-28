@@ -51,6 +51,11 @@ namespace lgt {
     static bool s_EnableRTAO = false;
     static bool s_EnableDDGI = true;
     static bool s_EnableMeshletCulling = true;
+    static bool s_EnableTAA = true;
+    static float s_TAABlendFactor = 0.1f;
+    static bool s_EnableBloom = true;
+    static float s_BloomThreshold = 1.0f;
+    static float s_BloomStrength = 0.04f;
 
     void Renderer::Init() {
         if (s_VAO == 0) {
@@ -522,18 +527,21 @@ namespace lgt {
 
         // --- 2.5 TAA and Bloom ---
         uint32_t colorTex = s_HDRBuffer->GetColorAttachment(0)->GetRendererID();
+        uint32_t resolvedTex = colorTex;
         
-        // TAA Pass
-        TAAPass::Execute(colorTex, 
-                         s_GBuffer->GetColorAttachment(3)->GetRendererID(), 
-                         s_GBuffer->GetDepthAttachment()->GetRendererID(), 
-                         s_FrameIndex);
+        if (s_EnableTAA) {
+            TAAPass::Execute(colorTex, 
+                             s_GBuffer->GetColorAttachment(3)->GetRendererID(), 
+                             s_GBuffer->GetDepthAttachment()->GetRendererID(), 
+                             s_FrameIndex, s_TAABlendFactor);
+            resolvedTex = TAAPass::GetResolvedTextureID();
+        }
         
-        uint32_t resolvedTex = TAAPass::GetResolvedTextureID();
-        
-        // Bloom Pass
-        BloomPass::Execute(resolvedTex, 1.0f, 0.04f); // threshold, strength
-        uint32_t bloomTex = BloomPass::GetBloomTextureID();
+        uint32_t bloomTex = 0;
+        if (s_EnableBloom) {
+            BloomPass::Execute(resolvedTex, s_BloomThreshold, s_BloomStrength);
+            bloomTex = BloomPass::GetBloomTextureID();
+        }
 
         // --- 3. Post-Processing Pass (to Final Buffer) ---
         if (s_PostProcessShader && s_HDRBuffer && s_FinalBuffer) {
@@ -548,9 +556,12 @@ namespace lgt {
             glBindTexture(GL_TEXTURE_2D, resolvedTex);
             s_PostProcessShader->SetInt("u_HDRBuffer", 0);
             
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, bloomTex);
-            s_PostProcessShader->SetInt("u_BloomBuffer", 1);
+            s_PostProcessShader->SetInt("u_EnableBloom", s_EnableBloom ? 1 : 0);
+            if (s_EnableBloom) {
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, bloomTex);
+                s_PostProcessShader->SetInt("u_BloomBuffer", 1);
+            }
             
             s_PostProcessShader->SetFloat("u_Exposure", 1.0f); // Default exposure
 
@@ -633,5 +644,17 @@ namespace lgt {
     bool Renderer::IsMeshletCullingEnabled() {
         return s_EnableMeshletCulling;
     }
+
+    void Renderer::SetTAAEnabled(bool enabled) { s_EnableTAA = enabled; }
+    bool Renderer::IsTAAEnabled() { return s_EnableTAA; }
+    void Renderer::SetTAABlendFactor(float factor) { s_TAABlendFactor = factor; }
+    float Renderer::GetTAABlendFactor() { return s_TAABlendFactor; }
+
+    void Renderer::SetBloomEnabled(bool enabled) { s_EnableBloom = enabled; }
+    bool Renderer::IsBloomEnabled() { return s_EnableBloom; }
+    void Renderer::SetBloomThreshold(float threshold) { s_BloomThreshold = threshold; }
+    float Renderer::GetBloomThreshold() { return s_BloomThreshold; }
+    void Renderer::SetBloomStrength(float strength) { s_BloomStrength = strength; }
+    float Renderer::GetBloomStrength() { return s_BloomStrength; }
 
 }

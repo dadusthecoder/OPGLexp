@@ -81,7 +81,7 @@ namespace lgt {
         }
     }
 
-    void TAAPass::Execute(uint32_t currentColorID, uint32_t velocityID, uint32_t depthID, int frameIndex) {
+    void TAAPass::Execute(uint32_t currentColorID, uint32_t velocityID, uint32_t depthID, int frameIndex, float blendFactor) {
         int nextHistory = 1 - s_CurrentHistory;
         
         s_HistoryFBOs[nextHistory]->Bind();
@@ -108,8 +108,7 @@ namespace lgt {
         s_TAAShader->SetInt("u_Depth", 3);
 
         s_TAAShader->SetFloat2("u_Resolution", glm::vec2((float)s_Width, (float)s_Height));
-        // If camera is moving fast, we might want higher blend factor. For now, constant 0.1f.
-        s_TAAShader->SetFloat("u_BlendFactor", 0.1f);
+        s_TAAShader->SetFloat("u_BlendFactor", blendFactor);
 
         glBindVertexArray(s_QuadVAO); // Can be empty VAO
         glDrawArrays(GL_TRIANGLES, 0, 3);

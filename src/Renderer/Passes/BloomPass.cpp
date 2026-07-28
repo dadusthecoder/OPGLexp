@@ -66,6 +66,7 @@ namespace lgt {
 
         s_DownsampleShader->Bind();
         s_DownsampleShader->SetInt("u_Source", 0);
+        s_DownsampleShader->SetFloat("u_Threshold", threshold);
         
         uint32_t srcTex = hdrTextureID;
         uint32_t currentWidth = s_Width;
@@ -78,6 +79,7 @@ namespace lgt {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, srcTex);
             
+            s_DownsampleShader->SetInt("u_MipLevel", i);
             s_DownsampleShader->SetFloat2("u_SrcTexelSize", glm::vec2(1.0f / (float)currentWidth, 1.0f / (float)currentHeight));
             
             glBindVertexArray(s_QuadVAO);

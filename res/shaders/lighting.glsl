@@ -52,6 +52,9 @@ uniform ivec3 u_DDGIProbeGridSize;
 uniform vec3 u_DDGIProbeOrigin;
 uniform vec3 u_DDGIProbeSpacing;
 
+uniform int u_EnableRTAO;
+uniform int u_EnableDDGI;
+
 vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
     vec3 gridPos = (worldPos - u_DDGIProbeOrigin) / u_DDGIProbeSpacing;
     ivec3 baseProbe = clamp(ivec3(gridPos), ivec3(0), u_DDGIProbeGridSize - 2);
@@ -111,6 +114,11 @@ void main() {
     vec3 worldPos = ReconstructWorldPos(v_TexCoord, depth, u_InvViewProjection);
     vec3 V = SafeNormalize(u_CameraPos - worldPos);
 
+    // Flip normal towards camera for two-sided surfaces / backfacing geometry
+    if (dot(N, V) < 0.0) {
+        N = -N;
+    }
+
     vec3 Lo = vec3(0.0);
     
     for (int i = 0; i < u_LightCount; ++i) {
@@ -135,25 +143,43 @@ void main() {
         Lo += DirectLight(N, V, L, albedo, metallic, roughness, lightColor);
     }
 
-    // IBL
+    // IBL & Ambient
     vec3 R = reflect(-V, N);
     
     vec3 irradiance = vec3(0.0);
-    if (u_DDGIProbeGridSize.x > 0) {
+    if (u_EnableDDGI != 0 && u_DDGIProbeGridSize.x > 0) {
         irradiance = SampleDDGI(worldPos, N);
-    } else {
+    } else if (textureSize(u_IrradianceMap, 0).x > 1) {
         irradiance = texture(u_IrradianceMap, N).rgb;
+    }
+
+    // Soft hemispherical ambient bounce fallback so shadowed regions reveal scene details
+    vec3 skyColor = vec3(0.35, 0.42, 0.52) * 0.45;
+    vec3 groundColor = vec3(0.12, 0.10, 0.08) * 0.45;
+    float up = N.y * 0.5 + 0.5;
+    vec3 hemisphereAmbient = mix(groundColor, skyColor, up);
+    
+    if (length(irradiance) < 0.001) {
+        irradiance = hemisphereAmbient;
     }
     
     vec3 diffuseIBL = irradiance * albedo * (1.0 - metallic);
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 brdf = texture(u_BrdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec3 prefilteredColor = vec3(0.0);
+    if (textureSize(u_PrefilterMap, 0).x > 1) {
+        prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+    }
+    
+    vec2 brdf = vec2(0.5, 0.0);
+    if (textureSize(u_BrdfLut, 0).x > 1) {
+        brdf = texture(u_BrdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    }
+    
     vec3 specularIBL = prefilteredColor * (F0 * brdf.x + brdf.y);
 
-    float rtao = texture(u_AOTexture, v_TexCoord).r;
+    float rtao = (u_EnableRTAO != 0) ? texture(u_AOTexture, v_TexCoord).r : 1.0;
     vec3 ambient = (diffuseIBL + specularIBL) * ao * rtao;
 
     vec3 color = ambient + Lo;
