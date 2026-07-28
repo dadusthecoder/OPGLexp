@@ -208,36 +208,52 @@ namespace lgt {
         ImGui::End();
     }
 
+    void EditorLayer::DrawEntityNode(Entity entity) {
+        std::string tag = entity.GetComponent<TagComponent>().Tag;
+        auto& rel = entity.GetComponent<RelationshipComponent>();
+
+        ImGuiTreeNodeFlags flags = ((m_SelectedEntity == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+        flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
+        
+        if (rel.FirstChild == entt::null) {
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        }
+
+        bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "%s", tag.c_str());
+        if (ImGui::IsItemClicked()) {
+            m_SelectedEntity = entity;
+        }
+
+        bool entityDeleted = false;
+        if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem("Delete Entity"))
+                entityDeleted = true;
+            ImGui::EndPopup();
+        }
+
+        if (opened && rel.FirstChild != entt::null) {
+            entt::entity curr = rel.FirstChild;
+            while(curr != entt::null) {
+                DrawEntityNode(Entity{curr, m_Scene});
+                curr = m_Scene->GetRegistry().get<RelationshipComponent>(curr).NextSibling;
+            }
+            ImGui::TreePop();
+        }
+
+        if (entityDeleted) {
+            m_Scene->DestroyEntity(entity);
+            if (m_SelectedEntity == entity) m_SelectedEntity = {};
+        }
+    }
+
     void EditorLayer::DrawHierarchyPanel() {
         ImGui::Begin("Hierarchy");
         
-        auto view = m_Scene->GetRegistry().view<TagComponent>();
+        auto view = m_Scene->GetRegistry().view<TagComponent, RelationshipComponent>();
         for (auto entityID : view) {
-            Entity entity{ entityID, m_Scene };
-            std::string tag = entity.GetComponent<TagComponent>().Tag;
-
-            ImGuiTreeNodeFlags flags = ((m_SelectedEntity == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
-            flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-
-            bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "%s", tag.c_str());
-            if (ImGui::IsItemClicked()) {
-                m_SelectedEntity = entity;
-            }
-
-            bool entityDeleted = false;
-            if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Delete Entity"))
-                    entityDeleted = true;
-                ImGui::EndPopup();
-            }
-
-            if (opened) {
-                ImGui::TreePop();
-            }
-
-            if (entityDeleted) {
-                m_Scene->DestroyEntity(entity);
-                if (m_SelectedEntity == entity) m_SelectedEntity = {};
+            auto& rel = view.get<RelationshipComponent>(entityID);
+            if (rel.Parent == entt::null) {
+                DrawEntityNode(Entity{ entityID, m_Scene });
             }
         }
 

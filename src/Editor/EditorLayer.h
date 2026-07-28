@@ -17,6 +17,7 @@ namespace lgt {
         bool m_ViewportHovered = false;
         
         void DrawHierarchyPanel();
+        void DrawEntityNode(Entity entity);
         void DrawPropertiesPanel();
         void DrawViewportPanel();
         void DrawConsolePanel();

@@ -12,6 +12,10 @@ namespace lgt {
         Entity(entt::entity handle, Scene* scene);
         Entity(const Entity& other) = default;
 
+        void SetParent(Entity parent);
+        Entity GetParent();
+        std::vector<Entity> GetChildren();
+
         template<typename T, typename... Args>
         T& AddComponent(Args&&... args) {
             assert(!HasComponent<T>() && "Entity already has component!");

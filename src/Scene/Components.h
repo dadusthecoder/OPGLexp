@@ -50,6 +50,17 @@ namespace lgt {
         }
     };
 
+    struct RelationshipComponent {
+        entt::entity Parent = entt::null;
+        entt::entity FirstChild = entt::null;
+        entt::entity PrevSibling = entt::null;
+        entt::entity NextSibling = entt::null;
+        uint32_t ChildrenCount = 0;
+
+        RelationshipComponent() = default;
+        RelationshipComponent(const RelationshipComponent&) = default;
+    };
+
     class Material;
 
     struct MeshRendererComponent {

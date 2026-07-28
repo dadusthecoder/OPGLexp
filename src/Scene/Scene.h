@@ -24,6 +24,9 @@ namespace lgt {
         entt::registry& GetRegistry() { return m_Registry; }
 
     private:
+        void UpdateTransformRecursive(entt::entity entity, const glm::mat4& parentTransform);
+
+    private:
         entt::registry m_Registry;
 
         friend class Entity;

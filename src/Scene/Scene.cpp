@@ -4,6 +4,18 @@
 
 namespace lgt {
 
+    void Scene::UpdateTransformRecursive(entt::entity entity, const glm::mat4& parentTransform) {
+        auto& transform = m_Registry.get<TransformComponent>(entity);
+        transform.GlobalTransform = parentTransform * transform.GetLocalTransform();
+
+        auto& rel = m_Registry.get<RelationshipComponent>(entity);
+        entt::entity curr = rel.FirstChild;
+        while(curr != entt::null) {
+            UpdateTransformRecursive(curr, transform.GlobalTransform);
+            curr = m_Registry.get<RelationshipComponent>(curr).NextSibling;
+        }
+    }
+
     Scene::Scene() {
     }
 
@@ -13,6 +25,7 @@ namespace lgt {
     Entity Scene::CreateEntity(const std::string& name) {
         Entity entity = { m_Registry.create(), this };
         entity.AddComponent<TransformComponent>();
+        entity.AddComponent<RelationshipComponent>();
         auto& tag = entity.AddComponent<TagComponent>();
         tag.Tag = name.empty() ? "Entity" : name;
         return entity;
@@ -52,11 +65,13 @@ namespace lgt {
             }
         }
 
-        // Update global transforms based on local transforms
-        auto view = m_Registry.view<TransformComponent>();
+        // Update global transforms based on local transforms recursively
+        auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
         for (auto entity : view) {
-            auto& transform = view.get<TransformComponent>(entity);
-            transform.GlobalTransform = transform.GetLocalTransform();
+            auto& rel = view.get<RelationshipComponent>(entity);
+            if (rel.Parent == entt::null) { // Root nodes only
+                UpdateTransformRecursive(entity, glm::mat4(1.0f));
+            }
         }
     }
 
