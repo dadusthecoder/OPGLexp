@@ -79,7 +79,7 @@ namespace lgt {
         }
 
         if (!s_LightingShader) {
-            s_LightingShader = Shader::Create("res/shaders/lighting_pass.glsl");
+            s_LightingShader = Shader::Create("res/shaders/lighting.glsl");
         }
 
         if (!s_HDRBuffer) {
@@ -383,8 +383,8 @@ namespace lgt {
             
             s_LightingShader->Bind();
             
-            s_LightingShader->SetMat4("u_InverseViewProjection", glm::inverse(s_ViewProjection));
-            s_LightingShader->SetFloat3("u_CameraPosition", s_CameraPosition);
+            s_LightingShader->SetMat4("u_InvViewProjection", glm::inverse(s_ViewProjection));
+            s_LightingShader->SetFloat3("u_CameraPos", s_CameraPosition);
 
             // Set Lights
             s_LightingShader->SetInt("u_LightCount", (int)s_Lights.size());
@@ -404,7 +404,7 @@ namespace lgt {
             s_GBuffer->GetColorAttachment(2)->Bind(2); // PBR
             s_GBuffer->GetDepthAttachment()->Bind(3); // Depth
             
-            s_LightingShader->SetInt("u_gAlbedoSpec", 0);
+            s_LightingShader->SetInt("u_gAlbedo", 0);
             s_LightingShader->SetInt("u_gNormal", 1);
             s_LightingShader->SetInt("u_gPBR", 2);
             s_LightingShader->SetInt("u_gDepth", 3);

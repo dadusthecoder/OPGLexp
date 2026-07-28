@@ -26,6 +26,11 @@ set(SOURCES
     src/Renderer/Utils/BVH.cpp
     # Renderer Passes
     src/Renderer/Passes/BVHPass.cpp
+    src/Renderer/Passes/RTAOPass.cpp
+    src/Renderer/Passes/DDGIPass.cpp
+    src/Renderer/Passes/IBLPass.cpp
+    src/Renderer/Passes/BloomPass.cpp
+    src/Renderer/Passes/TAAPass.cpp
     # Renderer Backend
     src/Renderer/Backend/OpenGLShader.cpp
     src/Renderer/Backend/OpenGLBuffer.cpp
