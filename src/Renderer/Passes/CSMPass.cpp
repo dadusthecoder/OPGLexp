@@ -194,17 +194,9 @@ namespace lgt {
                 maxZ = std::max(maxZ, trf.z);
             }
             
-            constexpr float zMult = 10.0f;
-            if (minZ < 0) {
-                minZ *= zMult;
-            } else {
-                minZ /= zMult;
-            }
-            if (maxZ < 0) {
-                maxZ /= zMult;
-            } else {
-                maxZ *= zMult;
-            }
+            // Pull the near plane back to capture shadow casters behind the camera
+            minZ -= 1000.0f;
+            maxZ += 200.0f;
             
             const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, minZ, maxZ);
             s_LightSpaceMatrices[i] = lightProjection * lightView;

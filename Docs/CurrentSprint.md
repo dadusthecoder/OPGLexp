@@ -35,6 +35,8 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] Implemented Ray-Traced Shadows (`RTShadowPass`) via Compute Shader BVH `TraceAnyHit` + bilateral `shadow_blur.comp`.
 - [x] Implemented Compute-Based Clustered Deferred Light Culling (`LightCullingPass`), optimized SSBO structures, fixed GL_INVALID_OPERATION type mismatches.
 - [x] Implemented Cascaded Shadow Maps (CSM) with PCF (`CSMPass`), utilizing GL_TEXTURE_2D_ARRAY for cascade layers and a customized depth shader.
+- [x] Fixed missing shadows by adjusting CSM orthographic projection bounds to include geometry behind the camera.
+- [x] Fixed GPU memory overwrite issue by correctly sizing `s_GlobalIndirectDrawBuffer` for meshlet counts when culling is disabled during shadow passes.
 
 ## Objective Status
 **ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up with Ray-Traced Shadows and dynamic Editor settings.

@@ -136,7 +136,7 @@ namespace lgt {
             s_GlobalInstanceBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, 10000 * sizeof(InstanceData), nullptr, BufferUsage::DynamicDraw);
         }
         if (!s_GlobalIndirectDrawBuffer) {
-            s_GlobalIndirectDrawBuffer = Buffer::Create(BufferType::DrawIndirectBuffer, 10000 * sizeof(DrawCommand), nullptr, BufferUsage::DynamicDraw);
+            s_GlobalIndirectDrawBuffer = Buffer::Create(BufferType::DrawIndirectBuffer, 100000 * sizeof(DrawCommand), nullptr, BufferUsage::DynamicDraw);
         }
         if (!s_GlobalDrawCountBuffer) {
             uint32_t initialCount = 0;
@@ -420,7 +420,7 @@ namespace lgt {
                 // Bind count buffer to GL_PARAMETER_BUFFER
                 glBindBuffer(GL_PARAMETER_BUFFER, s_GlobalDrawCountBuffer->GetRendererID());
                 
-                glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 10000, 0); // Need OpenGL 4.6
+                glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 100000, 0); // Need OpenGL 4.6
                 
                 glBindBuffer(GL_PARAMETER_BUFFER, 0);
                 s_GlobalIndirectDrawBuffer->Unbind();
@@ -493,11 +493,6 @@ namespace lgt {
                         break;
                     }
                 }
-                RTShadowPass::Execute(
-                    s_GBuffer->GetDepthAttachment()->GetRendererID(),
-                    s_GBuffer->GetColorAttachment(1)->GetRendererID(),
-                    glm::inverse(s_ViewProjection), s_CameraPosition, sunDir
-                );
 
                 auto csmRenderCallback = [](const glm::mat4& lightVP) {
                     bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
@@ -506,9 +501,30 @@ namespace lgt {
                         s_GlobalVertexBuffer->BindBase(4);
                         s_GlobalInstanceBuffer->BindBase(5);
                         s_GlobalIndexBuffer->Bind();
+
+                        // Re-run the cull shader with culling DISABLED to emit all draw commands
+                        uint32_t zero = 0;
+                        s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);
+
+                        s_CullShader->Bind();
+                        // Set dummy frustum planes (won't matter since culling is disabled)
+                        for (int i = 0; i < 6; i++)
+                            s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", glm::vec4(0));
+                        s_CullShader->SetUInt("u_InstanceCount", static_cast<uint32_t>(s_CommandQueue.m_Commands.size()));
+                        s_CullShader->SetInt("u_EnableCulling", 0); // DISABLE culling
+
+                        s_GlobalMeshletBuffer->BindBase(0);
+                        s_GlobalInstanceBuffer->BindBase(1);
+                        s_GlobalIndirectDrawBuffer->BindBase(2);
+                        s_GlobalDrawCountBuffer->BindBase(3);
+
+                        glDispatchCompute((s_CommandQueue.m_Commands.size() + 63) / 64, 1, 1);
+                        glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+                        // Now draw with ALL meshlets
                         s_GlobalIndirectDrawBuffer->Bind();
                         glBindBuffer(GL_PARAMETER_BUFFER, s_GlobalDrawCountBuffer->GetRendererID());
-                        glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 10000, 0);
+                        glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 100000, 0);
                         glBindBuffer(GL_PARAMETER_BUFFER, 0);
                         s_GlobalIndirectDrawBuffer->Unbind();
                         s_GlobalIndexBuffer->Unbind();
@@ -518,16 +534,6 @@ namespace lgt {
                                 cmd.mesh->Bind();
                                 glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
                                 cmd.mesh->Unbind();
-                            }
-                            else if (cmd.vertexBuffer) {
-                                glBindVertexArray(s_VAO);
-                                cmd.vertexBuffer->Bind();
-                                glEnableVertexAttribArray(0);
-                                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-                                if (cmd.indexBuffer) {
-                                    cmd.indexBuffer->Bind();
-                                    glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
-                                }
                             }
                         }
                     }
