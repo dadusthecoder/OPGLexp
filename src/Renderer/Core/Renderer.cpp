@@ -14,6 +14,7 @@
 #include "../Passes/TAAPass.h"
 #include "../Passes/BloomPass.h"
 #include "../Passes/RTShadowPass.h"
+#include "../Passes/CSMPass.h"
 #include "../Passes/LightCullingPass.h"
 
 namespace lgt {
@@ -154,6 +155,9 @@ namespace lgt {
         CORE_INFO("Renderer: Calling RTShadowPass::Init");
         RTShadowPass::Init(s_ViewportWidth, s_ViewportHeight);
 
+        CORE_INFO("Renderer: Calling CSMPass::Init");
+        CSMPass::Init(2048);
+
         CORE_INFO("Renderer: Calling LightCullingPass::Init");
         LightCullingPass::Init(s_ViewportWidth, s_ViewportHeight);
 
@@ -212,6 +216,7 @@ namespace lgt {
         TAAPass::Shutdown();
         BloomPass::Shutdown();
         RTShadowPass::Shutdown();
+        CSMPass::Shutdown();
         LightCullingPass::Shutdown();
 
         s_GlobalVertices.clear();
@@ -493,6 +498,42 @@ namespace lgt {
                     s_GBuffer->GetColorAttachment(1)->GetRendererID(),
                     glm::inverse(s_ViewProjection), s_CameraPosition, sunDir
                 );
+
+                auto csmRenderCallback = [](const glm::mat4& lightVP) {
+                    bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
+                    if (useGlobalBuffers) {
+                        glBindVertexArray(s_VAO);
+                        s_GlobalVertexBuffer->BindBase(4);
+                        s_GlobalInstanceBuffer->BindBase(5);
+                        s_GlobalIndexBuffer->Bind();
+                        s_GlobalIndirectDrawBuffer->Bind();
+                        glBindBuffer(GL_PARAMETER_BUFFER, s_GlobalDrawCountBuffer->GetRendererID());
+                        glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 0, 10000, 0);
+                        glBindBuffer(GL_PARAMETER_BUFFER, 0);
+                        s_GlobalIndirectDrawBuffer->Unbind();
+                        s_GlobalIndexBuffer->Unbind();
+                    } else {
+                        for (const auto& cmd : s_CommandQueue.m_Commands) {
+                            if (cmd.mesh) {
+                                cmd.mesh->Bind();
+                                glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
+                                cmd.mesh->Unbind();
+                            }
+                            else if (cmd.vertexBuffer) {
+                                glBindVertexArray(s_VAO);
+                                cmd.vertexBuffer->Bind();
+                                glEnableVertexAttribArray(0);
+                                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+                                if (cmd.indexBuffer) {
+                                    cmd.indexBuffer->Bind();
+                                    glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
+                                }
+                            }
+                        }
+                    }
+                };
+
+                CSMPass::Execute(s_ViewMatrix, s_ProjMatrix, sunDir, 0.1f, 1000.0f, csmRenderCallback);
             }
         }
 
@@ -580,8 +621,13 @@ namespace lgt {
             s_LightingShader->SetInt("u_EnableRTShadows", s_EnableRTShadows ? 1 : 0);
             if (s_EnableRTShadows) {
                 glActiveTexture(GL_TEXTURE9);
-                glBindTexture(GL_TEXTURE_2D, RTShadowPass::GetShadowMaskTextureID());
-                s_LightingShader->SetInt("u_ShadowMask", 9);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, CSMPass::GetShadowMapArrayID());
+                s_LightingShader->SetInt("u_ShadowCascades", 9);
+
+                for (int i = 0; i < 4; ++i) {
+                    s_LightingShader->SetMat4("u_LightSpaceMatrices[" + std::to_string(i) + "]", CSMPass::GetLightSpaceMatrices()[i]);
+                    s_LightingShader->SetFloat("u_CascadeSplits[" + std::to_string(i) + "]", CSMPass::GetCascadeSplits()[i]);
+                }
             }
 
             s_LightingShader->SetInt3("u_DDGIProbeGridSize", glm::ivec3(DDGIPass::GetGridSize().x, DDGIPass::GetGridSize().y, DDGIPass::GetGridSize().z));

@@ -58,8 +58,10 @@ layout(binding = 5) uniform samplerCube u_PrefilterMap;
 layout(binding = 6) uniform sampler2D u_BrdfLut;
 layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
-layout(binding = 9) uniform sampler2D u_ShadowMask;
+layout(binding = 9) uniform sampler2DArray u_ShadowCascades;
 
+uniform mat4 u_LightSpaceMatrices[4];
+uniform float u_CascadeSplits[4];
 // SSBO lights used instead
 
 uniform vec3 u_CameraPos;
@@ -107,6 +109,41 @@ vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
     }}}
     
     return (totalWeight > 0.001) ? irradiance / totalWeight : vec3(0.0);
+}
+
+float ShadowCalculation(vec3 worldPos, vec3 N, vec3 L) {
+    float depthVS = abs((u_ViewMatrix * vec4(worldPos, 1.0)).z);
+    int layer = -1;
+    for (int i = 0; i < 4; ++i) {
+        if (depthVS < u_CascadeSplits[i]) {
+            layer = i;
+            break;
+        }
+    }
+    if (layer == -1) layer = 3;
+
+    vec4 fragPosLightSpace = u_LightSpaceMatrices[layer] * vec4(worldPos, 1.0);
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+    
+    if (projCoords.z > 1.0) {
+        return 1.0;
+    }
+
+    float currentDepth = projCoords.z;
+    float bias = max(0.005 * (1.0 - dot(N, L)), 0.0005) * (layer + 1);
+
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / vec2(textureSize(u_ShadowCascades, 0));
+    for(int x = -1; x <= 1; ++x) {
+        for(int y = -1; y <= 1; ++y) {
+            float pcfDepth = texture(u_ShadowCascades, vec3(projCoords.xy + vec2(x, y) * texelSize, layer)).r; 
+            shadow += currentDepth - bias > pcfDepth ? 0.0 : 1.0;
+        }    
+    }
+    shadow /= 9.0;
+    
+    return shadow;
 }
 
 void main() {
@@ -182,10 +219,9 @@ void main() {
         
         vec3 lightColor = light.Color.xyz * light.Intensity * attenuation;
         
-        // Apply RT Shadows for directional light (Type 0)
-        // Assumes RT shadow mask is for the main directional light
+        // Apply RT Shadows / CSM for directional light (Type 0)
         if (light.Type == 0 && u_EnableRTShadows != 0) {
-            float shadow = texture(u_ShadowMask, v_TexCoord).r;
+            float shadow = ShadowCalculation(worldPos, N, L);
             lightColor *= shadow;
         }
 
