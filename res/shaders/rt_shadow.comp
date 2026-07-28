@@ -1,0 +1,49 @@
+#type compute
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0, r8) uniform writeonly image2D o_ShadowMask;
+
+layout(binding = 1) uniform sampler2D u_gDepth;
+layout(binding = 2) uniform sampler2D u_gNormal;
+
+#include "include/common.glsl"
+#include "include/bvh.glsl"
+
+uniform vec3 u_CameraPos;
+uniform mat4 u_InvViewProjection;
+uniform vec3 u_LightDirection;
+uniform float u_Time;
+
+void main() {
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(o_ShadowMask);
+    if (pixelCoord.x >= size.x || pixelCoord.y >= size.y) return;
+
+    vec2 uv = (vec2(pixelCoord) + 0.5) / vec2(size);
+    float depth = texture(u_gDepth, uv).r;
+    
+    // Background (skybox) is not shadowed
+    if (depth == 1.0) {
+        imageStore(o_ShadowMask, pixelCoord, vec4(1.0));
+        return;
+    }
+
+    vec3 worldPos = ReconstructWorldPos(uv, depth, u_InvViewProjection);
+    vec2 normalData = texture(u_gNormal, uv).rg;
+    vec3 normal = OctDecode(normalData);
+
+    // Bias ray origin slightly along normal to prevent self-shadowing acne
+    vec3 ro = worldPos + normal * 0.05;
+    
+    // Light direction (pointing towards light)
+    vec3 L = normalize(-u_LightDirection);
+    vec3 rd = L;
+
+    // Trace any hit ray (max distance 1000.0)
+    bool shadowed = TraceAnyHit(ro, rd, 1000.0);
+
+    float visibility = shadowed ? 0.0 : 1.0;
+    imageStore(o_ShadowMask, pixelCoord, vec4(visibility));
+}

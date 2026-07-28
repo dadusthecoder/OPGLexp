@@ -31,6 +31,7 @@ layout(binding = 5) uniform samplerCube u_PrefilterMap;
 layout(binding = 6) uniform sampler2D u_BrdfLut;
 layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
+layout(binding = 9) uniform sampler2D u_ShadowMask;
 
 
 struct Light {
@@ -54,6 +55,7 @@ uniform vec3 u_DDGIProbeSpacing;
 
 uniform int u_EnableRTAO;
 uniform int u_EnableDDGI;
+uniform int u_EnableRTShadows;
 
 vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
     vec3 gridPos = (worldPos - u_DDGIProbeOrigin) / u_DDGIProbeSpacing;
@@ -140,6 +142,14 @@ void main() {
         }
         
         vec3 lightColor = u_Lights[i].Color * u_Lights[i].Intensity * attenuation;
+        
+        // Apply RT Shadows for directional light (Type 0)
+        // Assumes RT shadow mask is for the main directional light
+        if (u_Lights[i].Type == 0 && u_EnableRTShadows != 0) {
+            float shadow = texture(u_ShadowMask, v_TexCoord).r;
+            lightColor *= shadow;
+        }
+
         Lo += DirectLight(N, V, L, albedo, metallic, roughness, lightColor);
     }
 

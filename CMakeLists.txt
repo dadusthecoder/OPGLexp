@@ -37,6 +37,7 @@ set(SOURCES
     src/Renderer/Passes/IBLPass.cpp
     src/Renderer/Passes/BloomPass.cpp
     src/Renderer/Passes/TAAPass.cpp
+    src/Renderer/Passes/RTShadowPass.cpp
     # Renderer Backend
     src/Renderer/Backend/OpenGLShader.cpp
     src/Renderer/Backend/OpenGLBuffer.cpp

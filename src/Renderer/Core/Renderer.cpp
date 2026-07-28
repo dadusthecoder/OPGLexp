@@ -13,6 +13,7 @@
 #include "../Passes/IBLPass.h"
 #include "../Passes/TAAPass.h"
 #include "../Passes/BloomPass.h"
+#include "../Passes/RTShadowPass.h"
 
 namespace lgt {
 
@@ -56,6 +57,7 @@ namespace lgt {
     static bool s_EnableBloom = true;
     static float s_BloomThreshold = 1.0f;
     static float s_BloomStrength = 0.04f;
+    static bool s_EnableRTShadows = true;
 
     void Renderer::Init() {
         if (s_VAO == 0) {
@@ -146,6 +148,10 @@ namespace lgt {
         TAAPass::Init(s_ViewportWidth, s_ViewportHeight);
         CORE_INFO("Renderer: Calling BloomPass::Init");
         BloomPass::Init(s_ViewportWidth, s_ViewportHeight);
+        
+        CORE_INFO("Renderer: Calling RTShadowPass::Init");
+        RTShadowPass::Init(s_ViewportWidth, s_ViewportHeight);
+
         CORE_INFO("Renderer: Init Complete");
     }
 
@@ -197,6 +203,9 @@ namespace lgt {
         DDGIPass::Shutdown();
         TAAPass::Shutdown();
         BloomPass::Shutdown();
+        RTShadowPass::Shutdown();
+
+        s_GlobalVertices.clear();
     }
 
     void Renderer::OnWindowResize(uint32_t width, uint32_t height) {
@@ -214,6 +223,7 @@ namespace lgt {
         RTAOPass::Resize(width, height);
         TAAPass::Resize(width, height);
         BloomPass::Resize(width, height);
+        RTShadowPass::Resize(width, height);
         SetViewport(0, 0, width, height);
     }
 
@@ -454,6 +464,21 @@ namespace lgt {
                 }
                 DDGIPass::Execute(sunDir, sunColor, sunIntensity, s_FrameIndex);
             }
+
+            if (s_EnableRTShadows) {
+                glm::vec3 sunDir(0, -1, 0);
+                for (const auto& l : s_Lights) {
+                    if (l.Type == 0) {
+                        sunDir = l.Direction;
+                        break;
+                    }
+                }
+                RTShadowPass::Execute(
+                    s_GBuffer->GetDepthAttachment()->GetRendererID(),
+                    s_GBuffer->GetColorAttachment(1)->GetRendererID(),
+                    glm::inverse(s_ViewProjection), s_CameraPosition, sunDir
+                );
+            }
         }
 
         // --- 2. Lighting Pass (to HDR Buffer) ---
@@ -514,6 +539,13 @@ namespace lgt {
             glBindTexture(GL_TEXTURE_2D, DDGIPass::GetIrradianceAtlasID());
             s_LightingShader->SetInt("u_DDGIIrradiance", 8);
             s_LightingShader->SetInt("u_EnableDDGI", s_EnableDDGI ? 1 : 0);
+
+            s_LightingShader->SetInt("u_EnableRTShadows", s_EnableRTShadows ? 1 : 0);
+            if (s_EnableRTShadows) {
+                glActiveTexture(GL_TEXTURE9);
+                glBindTexture(GL_TEXTURE_2D, RTShadowPass::GetShadowMaskTextureID());
+                s_LightingShader->SetInt("u_ShadowMask", 9);
+            }
 
             s_LightingShader->SetInt3("u_DDGIProbeGridSize", glm::ivec3(DDGIPass::GetGridSize().x, DDGIPass::GetGridSize().y, DDGIPass::GetGridSize().z));
             s_LightingShader->SetFloat3("u_DDGIProbeOrigin", DDGIPass::GetProbeOrigin());
@@ -656,5 +688,8 @@ namespace lgt {
     float Renderer::GetBloomThreshold() { return s_BloomThreshold; }
     void Renderer::SetBloomStrength(float strength) { s_BloomStrength = strength; }
     float Renderer::GetBloomStrength() { return s_BloomStrength; }
+
+    void Renderer::SetRTShadowsEnabled(bool enabled) { s_EnableRTShadows = enabled; }
+    bool Renderer::IsRTShadowsEnabled() { return s_EnableRTShadows; }
 
 }

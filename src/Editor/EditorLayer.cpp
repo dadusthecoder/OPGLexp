@@ -74,6 +74,11 @@ namespace lgt {
             Renderer::SetRTAOEnabled(rtaoEnabled);
         }
 
+        bool rtShadowsEnabled = Renderer::IsRTShadowsEnabled();
+        if (ImGui::Checkbox("Enable RT Shadows", &rtShadowsEnabled)) {
+            Renderer::SetRTShadowsEnabled(rtShadowsEnabled);
+        }
+
         bool ddgiEnabled = Renderer::IsDDGIEnabled();
         if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
             Renderer::SetDDGIEnabled(ddgiEnabled);

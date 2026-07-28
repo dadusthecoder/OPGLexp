@@ -61,6 +61,9 @@ namespace lgt {
         static void SetBloomStrength(float strength);
         static float GetBloomStrength();
 
+        static void SetRTShadowsEnabled(bool enabled);
+        static bool IsRTShadowsEnabled();
+
         static RenderCommandQueue& GetQueue();
         
         // --- GPU-Driven Global Buffers ---
