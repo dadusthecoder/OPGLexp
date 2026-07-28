@@ -251,8 +251,8 @@ void main() {
     }
 
     // Soft hemispherical ambient bounce fallback so shadowed regions reveal scene details
-    vec3 skyColor = vec3(0.35, 0.42, 0.52) * 0.45;
-    vec3 groundColor = vec3(0.12, 0.10, 0.08) * 0.45;
+    vec3 skyColor = vec3(0.35, 0.42, 0.52) * 0.05;
+    vec3 groundColor = vec3(0.12, 0.10, 0.08) * 0.05;
     float up = N.y * 0.5 + 0.5;
     vec3 hemisphereAmbient = mix(groundColor, skyColor, up);
     
