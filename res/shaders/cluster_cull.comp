@@ -1,7 +1,7 @@
 #type compute
 #version 460 core
 
-layout(local_size_x = 16, local_size_y = 9, local_size_z = 4) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct LightData {
     vec4 Position;
@@ -28,7 +28,7 @@ layout(std430, binding = 1) readonly buffer LightBuffer {
 };
 
 layout(std430, binding = 2) writeonly buffer LightGridBuffer {
-    uint lightGrid[]; // x=offset, y=count
+    uint lightGrid[]; // [clusterIdx*2+0]=offset, [clusterIdx*2+1]=count
 };
 
 layout(std430, binding = 3) writeonly buffer LightIndexBuffer {
@@ -56,15 +56,15 @@ bool TestSphereAABB(vec3 center, float radius, vec3 aabbMin, vec3 aabbMax) {
 }
 
 void main() {
-    uint clusterIndex = gl_LocalInvocationID.x +
-                        gl_LocalInvocationID.y * gl_WorkGroupSize.x +
-                        gl_LocalInvocationID.z * (gl_WorkGroupSize.x * gl_WorkGroupSize.y);
-    
-    uint globalClusterIndex = gl_GlobalInvocationID.x +
-                              gl_GlobalInvocationID.y * u_GridSize.x +
-                              gl_GlobalInvocationID.z * (u_GridSize.x * u_GridSize.y);
+    // Each workgroup processes exactly one cluster.
+    // gl_WorkGroupID encodes the 3D cluster position.
+    uint globalClusterIndex = gl_WorkGroupID.x +
+                              gl_WorkGroupID.y * uint(u_GridSize.x) +
+                              gl_WorkGroupID.z * uint(u_GridSize.x * u_GridSize.y);
 
-    if (clusterIndex == 0) {
+    uint threadIndex = gl_LocalInvocationIndex; // 0..63
+
+    if (threadIndex == 0) {
         visibleLightCount = 0;
     }
     
@@ -74,11 +74,11 @@ void main() {
     vec3 minP = aabb.minPoint.xyz;
     vec3 maxP = aabb.maxPoint.xyz;
 
-    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+    uint threadCount = gl_WorkGroupSize.x; // 64
     uint passCount = (uint(u_LightCount) + threadCount - 1) / threadCount;
 
     for (uint i = 0; i < passCount; ++i) {
-        uint lightIdx = i * threadCount + clusterIndex;
+        uint lightIdx = i * threadCount + threadIndex;
         if (lightIdx < uint(u_LightCount)) {
             LightData light = lights[lightIdx];
             
@@ -103,22 +103,22 @@ void main() {
 
     barrier();
 
-    if (clusterIndex == 0) {
+    // Thread 0 allocates space in the global index list and writes the grid entry
+    if (threadIndex == 0) {
         uint count = min(visibleLightCount, uint(MAX_LIGHTS_PER_CLUSTER));
         clusterStartIndex = atomicAdd(globalIndexCount, count);
         
-        // lightGrid[globalClusterIndex * 2 + 0] = offset
-        // lightGrid[globalClusterIndex * 2 + 1] = count
         lightGrid[globalClusterIndex * 2 + 0] = clusterStartIndex;
         lightGrid[globalClusterIndex * 2 + 1] = count;
     }
     
     barrier();
 
+    // All threads cooperatively write the visible light indices to global memory
     uint count = min(visibleLightCount, uint(MAX_LIGHTS_PER_CLUSTER));
     uint passCountIndices = (count + threadCount - 1) / threadCount;
     for (uint i = 0; i < passCountIndices; ++i) {
-        uint idx = i * threadCount + clusterIndex;
+        uint idx = i * threadCount + threadIndex;
         if (idx < count) {
             lightIndices[clusterStartIndex + idx] = visibleLightIndices[idx];
         }
