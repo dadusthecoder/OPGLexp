@@ -494,32 +494,34 @@ namespace lgt {
                     }
                 }
 
-                auto csmRenderCallback = [](const glm::mat4& lightVP) {
-                    bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
+                bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
+                
+                // Pre-calculate the unculled indirect draw buffer for shadows ONCE
+                if (useGlobalBuffers) {
+                    uint32_t zero = 0;
+                    s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);
+
+                    s_CullShader->Bind();
+                    for (int i = 0; i < 6; i++)
+                        s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", glm::vec4(0));
+                    s_CullShader->SetUInt("u_InstanceCount", static_cast<uint32_t>(s_CommandQueue.m_Commands.size()));
+                    s_CullShader->SetInt("u_EnableCulling", 0); // DISABLE culling
+
+                    s_GlobalMeshletBuffer->BindBase(0);
+                    s_GlobalInstanceBuffer->BindBase(1);
+                    s_GlobalIndirectDrawBuffer->BindBase(2);
+                    s_GlobalDrawCountBuffer->BindBase(3);
+
+                    glDispatchCompute((s_CommandQueue.m_Commands.size() + 63) / 64, 1, 1);
+                    glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+                }
+
+                auto csmRenderCallback = [useGlobalBuffers](const glm::mat4& lightVP) {
                     if (useGlobalBuffers) {
                         glBindVertexArray(s_VAO);
                         s_GlobalVertexBuffer->BindBase(4);
                         s_GlobalInstanceBuffer->BindBase(5);
                         s_GlobalIndexBuffer->Bind();
-
-                        // Re-run the cull shader with culling DISABLED to emit all draw commands
-                        uint32_t zero = 0;
-                        s_GlobalDrawCountBuffer->SetData(&zero, sizeof(uint32_t), 0);
-
-                        s_CullShader->Bind();
-                        // Set dummy frustum planes (won't matter since culling is disabled)
-                        for (int i = 0; i < 6; i++)
-                            s_CullShader->SetFloat4("u_FrustumPlanes[" + std::to_string(i) + "]", glm::vec4(0));
-                        s_CullShader->SetUInt("u_InstanceCount", static_cast<uint32_t>(s_CommandQueue.m_Commands.size()));
-                        s_CullShader->SetInt("u_EnableCulling", 0); // DISABLE culling
-
-                        s_GlobalMeshletBuffer->BindBase(0);
-                        s_GlobalInstanceBuffer->BindBase(1);
-                        s_GlobalIndirectDrawBuffer->BindBase(2);
-                        s_GlobalDrawCountBuffer->BindBase(3);
-
-                        glDispatchCompute((s_CommandQueue.m_Commands.size() + 63) / 64, 1, 1);
-                        glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
 
                         // Now draw with ALL meshlets
                         s_GlobalIndirectDrawBuffer->Bind();
