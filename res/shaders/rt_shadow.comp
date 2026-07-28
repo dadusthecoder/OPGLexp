@@ -34,11 +34,13 @@ void main() {
     vec2 normalData = texture(u_gNormal, uv).rg;
     vec3 normal = OctDecode(normalData);
 
-    // Bias ray origin slightly along normal to prevent self-shadowing acne
-    vec3 ro = worldPos + normal * 0.05;
-    
     // Light direction (pointing towards light)
     vec3 L = normalize(-u_LightDirection);
+
+    // Bias ray origin slightly along normal to prevent self-shadowing acne
+    // We add a stronger bias along the normal and slightly along the light vector
+    vec3 ro = worldPos + normal * 0.2 + L * 0.1;
+    
     vec3 rd = L;
 
     // Trace any hit ray (max distance 1000.0)

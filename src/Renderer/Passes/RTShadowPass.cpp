@@ -13,15 +13,16 @@ namespace lgt {
     static uint32_t s_BlurredMaskTexture = 0;
 
     void RTShadowPass::Init(uint32_t width, uint32_t height) {
-        s_Width = width;
-        s_Height = height;
+        // Half-resolution for better performance
+        s_Width = width / 2;
+        s_Height = height / 2;
 
         s_RTShadowShader = Shader::Create("res/shaders/rt_shadow.comp");
         s_ShadowBlurShader = Shader::Create("res/shaders/shadow_blur.comp");
 
         glGenTextures(1, &s_ShadowMaskTexture);
         glBindTexture(GL_TEXTURE_2D, s_ShadowMaskTexture);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, width, height);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, s_Width, s_Height);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -29,7 +30,7 @@ namespace lgt {
 
         glGenTextures(1, &s_BlurredMaskTexture);
         glBindTexture(GL_TEXTURE_2D, s_BlurredMaskTexture);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, width, height);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, s_Width, s_Height);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
