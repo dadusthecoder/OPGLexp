@@ -5,6 +5,7 @@
 #include "Framebuffer.h"
 #include <iostream>
 #include "../../Helpers/DebugStats.h"
+#include "../Passes/BVHPass.h"
 
 namespace lgt {
 
@@ -15,6 +16,7 @@ namespace lgt {
     static uint32_t s_ViewportWidth = 800;
     static uint32_t s_ViewportHeight = 600;
     static glm::mat4 s_ViewProjection = glm::mat4(1.0f);
+    static glm::mat4 s_PrevViewProjection = glm::mat4(1.0f);
     
     static GLuint s_QuadVAO = 0;
     static GLuint s_QuadVBO = 0;
@@ -48,14 +50,11 @@ namespace lgt {
             FramebufferDescriptor desc;
             desc.width = s_ViewportWidth;
             desc.height = s_ViewportHeight;
-            // Color attachment 0: Albedo (RGB) + Specular/Emission (A)
-            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA8));
-            // Color attachment 1: Normal (RGB)
-            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA16F));
-            // Color attachment 2: PBR (Metallic, Roughness, AO)
-            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA8));
-            // Depth attachment
-            desc.attachments.push_back(FramebufferAttachment(TextureFormat::Depth24Stencil8));
+            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA8));    // [0] Albedo
+            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA16F));  // [1] Normal
+            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RGBA16F));  // [2] PBR
+            desc.attachments.push_back(FramebufferAttachment(TextureFormat::RG16F));    // [3] Velocity
+            desc.attachments.push_back(FramebufferAttachment(TextureFormat::Depth32F)); // Depth
             
             s_GBuffer = Framebuffer::Create(desc);
         }
@@ -80,7 +79,7 @@ namespace lgt {
         }
 
         if (!s_LightingShader) {
-            s_LightingShader = Shader::Create("res/shaders/lighting_pass.glsl");
+            s_LightingShader = Shader::Create("res/shaders/lighting.glsl");
         }
 
         if (!s_HDRBuffer) {
@@ -320,6 +319,7 @@ namespace lgt {
                 auto material = s_CommandQueue.m_Commands[0].material;
                 material->Bind();
                 material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
+                material->GetShader()->SetMat4("u_PrevViewProjection", s_PrevViewProjection);
                 // Bind dummy VAO just so OpenGL doesn't complain
                 glBindVertexArray(s_VAO);
                 
@@ -347,6 +347,7 @@ namespace lgt {
                         cmd.material->Bind();
                         cmd.material->GetShader()->SetMat4("u_Model", cmd.transform);
                         cmd.material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
+                        cmd.material->GetShader()->SetMat4("u_PrevViewProjection", s_PrevViewProjection);
                     }
 
                     if (cmd.mesh) {
@@ -382,8 +383,8 @@ namespace lgt {
             
             s_LightingShader->Bind();
             
-            s_LightingShader->SetMat4("u_InverseViewProjection", glm::inverse(s_ViewProjection));
-            s_LightingShader->SetFloat3("u_CameraPosition", s_CameraPosition);
+            s_LightingShader->SetMat4("u_InvViewProjection", glm::inverse(s_ViewProjection));
+            s_LightingShader->SetFloat3("u_CameraPos", s_CameraPosition);
 
             // Set Lights
             s_LightingShader->SetInt("u_LightCount", (int)s_Lights.size());
@@ -403,7 +404,7 @@ namespace lgt {
             s_GBuffer->GetColorAttachment(2)->Bind(2); // PBR
             s_GBuffer->GetDepthAttachment()->Bind(3); // Depth
             
-            s_LightingShader->SetInt("u_gAlbedoSpec", 0);
+            s_LightingShader->SetInt("u_gAlbedo", 0);
             s_LightingShader->SetInt("u_gNormal", 1);
             s_LightingShader->SetInt("u_gPBR", 2);
             s_LightingShader->SetInt("u_gDepth", 3);
@@ -432,6 +433,8 @@ namespace lgt {
 
             s_FinalBuffer->Unbind();
         }
+
+        s_PrevViewProjection = s_ViewProjection;
     }
 
     void* Renderer::GetFinalColorBufferTextureID() {
@@ -457,6 +460,8 @@ namespace lgt {
         s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, vertices.size() * sizeof(float), vertices.data());
         s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data());
         s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, meshlets.size() * sizeof(Meshlet), meshlets.data());
+
+        BVHPass::Build(vertices, indices);
     }
 
 }

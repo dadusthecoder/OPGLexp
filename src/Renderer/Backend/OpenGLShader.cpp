@@ -18,6 +18,35 @@ namespace lgt {
         return 0;
     }
 
+    static std::string ProcessIncludes(const std::string& source, const std::string& currentFileDir) {
+        std::string result;
+        std::istringstream stream(source);
+        std::string line;
+        while (std::getline(stream, line)) {
+            size_t includePos = line.find("#include");
+            if (includePos != std::string::npos) {
+                size_t firstQuote = line.find('"', includePos);
+                size_t lastQuote = line.find('"', firstQuote + 1);
+                if (firstQuote != std::string::npos && lastQuote != std::string::npos) {
+                    std::string includePath = line.substr(firstQuote + 1, lastQuote - firstQuote - 1);
+                    std::string fullPath = currentFileDir + "/" + includePath;
+                    std::ifstream in(fullPath);
+                    if (in) {
+                        std::string includeSource((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                        auto lastSlash = fullPath.find_last_of("/\\");
+                        std::string nextDir = lastSlash == std::string::npos ? "." : fullPath.substr(0, lastSlash);
+                        result += ProcessIncludes(includeSource, nextDir) + "\n";
+                    } else {
+                        CORE_ERROR("Could not open include file '{}'", fullPath);
+                    }
+                    continue;
+                }
+            }
+            result += line + "\n";
+        }
+        return result;
+    }
+
     OpenGLShader::OpenGLShader(const std::string& filepath) {
         std::ifstream in(filepath, std::ios::in | std::ios::binary);
         std::string result;
@@ -28,13 +57,17 @@ namespace lgt {
                 result.resize(size);
                 in.seekg(0, std::ios::beg);
                 in.read(&result[0], size);
+                
+                auto lastSlash = filepath.find_last_of("/\\");
+                std::string dir = lastSlash == std::string::npos ? "." : filepath.substr(0, lastSlash);
+                result = ProcessIncludes(result, dir);
             }
             else {
-                CORE_ERROR("Could not read from file '{0}'", filepath);
+                CORE_ERROR("Could not read from file '{}'", filepath);
             }
         }
         else {
-            CORE_ERROR("Could not open file '{0}'", filepath);
+            CORE_ERROR("Could not open file '{}'", filepath);
         }
 
         std::unordered_map<GLenum, std::string> shaderSources;
@@ -90,7 +123,7 @@ namespace lgt {
                     std::vector<GLchar> infoLog(maxLength);
                     glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
                     CORE_ERROR("Shader compilation failure!");
-                    CORE_ERROR("{0}", infoLog.data());
+                    CORE_ERROR("{}", infoLog.data());
                 } else {
                     CORE_ERROR("Shader compilation failure! (No info log)");
                 }
@@ -115,7 +148,7 @@ namespace lgt {
                 std::vector<GLchar> infoLog(maxLength);
                 glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
                 CORE_ERROR("Shader link failure!");
-                CORE_ERROR("{0}", infoLog.data());
+                CORE_ERROR("{}", infoLog.data());
             } else {
                 CORE_ERROR("Shader link failure! (No info log)");
             }
@@ -161,7 +194,7 @@ namespace lgt {
 
         int location = glGetUniformLocation(m_RendererID, name.c_str());
         if (location == -1)
-            CORE_WARN("Warning: uniform '{0}' doesn't exist!", name);
+            CORE_WARN("Warning: uniform '{}' doesn't exist!", name);
 
         m_UniformLocationCache[name] = location;
         return location;

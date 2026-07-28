@@ -64,7 +64,7 @@ int main() {
     cameraTransform.Translation = glm::vec3(0.0f, 1.0f, 5.0f);
 
     // Load sphere model
-    lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry_pass.glsl");
+    lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry.glsl");
     lgt::Entity rootSphere = lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
 
     // Get the loaded mesh
@@ -81,6 +81,13 @@ int main() {
             for (int j = 0; j < 10; ++j) {
                 lgt::Entity gridSphere = scene.CreateEntity("Sphere_" + std::to_string(i) + "_" + std::to_string(j));
                 gridSphere.AddComponent<lgt::MeshRendererComponent>(*baseMeshComp);
+                
+                auto& newMeshComp = gridSphere.GetComponent<lgt::MeshRendererComponent>();
+                newMeshComp.material = new lgt::Material(geoShader);
+                newMeshComp.material->Albedo = glm::vec3(0.8f, 0.1f, 0.1f); // Red spheres
+                newMeshComp.material->Roughness = glm::clamp((float)j / 9.0f, 0.05f, 1.0f);
+                newMeshComp.material->Metallic = (float)i / 9.0f;
+
                 auto& transform = gridSphere.GetComponent<lgt::TransformComponent>();
                 transform.Translation = glm::vec3((i - 5) * 2.5f, 0.0f, (j - 5) * 2.5f);
             }
@@ -92,7 +99,7 @@ int main() {
     auto& lightComp = lightEntity.AddComponent<lgt::LightComponent>();
     lightComp.Type = 0;
     lightComp.Color = glm::vec3(1.0f, 0.95f, 0.85f);
-    lightComp.Intensity = 5.0f;
+    lightComp.Intensity = 20.0f;
     auto& lightTransform = lightEntity.GetComponent<lgt::TransformComponent>();
     lightTransform.Rotation = glm::vec3(glm::radians(-45.0f), glm::radians(45.0f), 0.0f);
 

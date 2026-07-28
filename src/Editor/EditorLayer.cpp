@@ -276,6 +276,12 @@ namespace lgt {
             ImGui::TableSetupColumn("Value");
             ImGui::TableHeadersRow();
 
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("FPS");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.1f", ImGui::GetIO().Framerate);
+
             for (const auto& stat : stats) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);

@@ -1,110 +1,60 @@
 #version 460 core
-#shader Compute
-// ============================================================
-// RTAO.comp — Ray-Traced Ambient Occlusion
-//
-// Traces 1 short-range ray per pixel into a cosine-weighted
-// hemisphere around the surface normal. Temporal accumulation
-// across frames produces a clean, noise-free AO result.
-//
-// Depends on shared includes:
-//   include/bvh_traversal.glsl  (TraceAnyHit)
-//   include/sampling.glsl       (CosineWeightedHemisphere, WangHash)
-// ============================================================
+
+#include "include/common.glsl"
+#include "include/sampling.glsl"
+#include "include/bvh.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-#include "include/intersection.glsl"
-#include "include/bvh_traversal.glsl"
-#include "include/sampling.glsl"
-
-// Output AO image (R16F, half or full resolution)
-layout(r16f, binding = 0) uniform image2D u_OutputAO;
-
 // G-Buffer inputs
-uniform sampler2D u_Depth;
-uniform sampler2D u_Normals;
+uniform sampler2D u_gDepth;    // binding=0
+uniform sampler2D u_gNormal;   // binding=1 (oct-encoded RG)
+uniform sampler2D u_BlueNoise; // binding=2
 
-// Camera matrices for world-space reconstruction
-uniform mat4  u_InverseView;
-uniform mat4  u_InverseProjection;
+// Output
+layout(r8, binding = 0) writeonly uniform image2D u_AOOutput;
 
-// RTAO parameters
-uniform float u_AORadius;       // Max ray distance (world units)
-uniform float u_AOIntensity;    // Strength multiplier
-uniform int   u_FrameCounter;   // For temporal variation of ray direction
-uniform vec2  u_ScreenSize;     // Full-resolution screen size
-
-// Blue noise texture for spatiotemporal sampling
-uniform sampler2D u_BlueNoise;
-
-// ============================================================
-// Reconstruct world position from depth buffer
-// ============================================================
-vec3 ReconstructWorldPos(vec2 uv, float depth) {
-    // Map UV + depth to NDC [-1, 1]
-    float z = depth * 2.0 - 1.0;
-    vec4 clipPos = vec4(uv * 2.0 - 1.0, z, 1.0);
-
-    // Unproject to view space
-    vec4 viewPos = u_InverseProjection * clipPos;
-    viewPos /= viewPos.w;
-
-    // Transform to world space
-    vec4 worldPos = u_InverseView * viewPos;
-    return worldPos.xyz;
-}
+// Camera
+uniform mat4  u_InvViewProjection;
+uniform vec2  u_Resolution;
+uniform int   u_FrameIndex;
+uniform float u_Radius;       // AO sampling radius in world units (default: 2.0)
+uniform int   u_NumRays;      // Number of AO rays (default: 8)
 
 void main() {
-    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 outputSize = imageSize(u_OutputAO);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(u_Resolution.x) || coord.y >= int(u_Resolution.y)) return;
 
-    if (pixel.x >= outputSize.x || pixel.y >= outputSize.y)
-        return;
+    vec2 uv = (vec2(coord) + 0.5) / u_Resolution;
+    float depth = texture(u_gDepth, uv).r;
 
-    // Compute UV for G-Buffer sampling (may differ from output size if half-res)
-    vec2 uv = (vec2(pixel) + 0.5) / vec2(outputSize);
+    // Sky = full brightness (no occlusion)
+    if (depth >= 1.0) { imageStore(u_AOOutput, coord, vec4(1.0)); return; }
 
-    // Sample depth
-    float depth = texture(u_Depth, uv).r;
+    vec3 worldPos = ReconstructWorldPos(uv, depth, u_InvViewProjection);
+    vec2 encodedNormal = texture(u_gNormal, uv).rg;
+    vec3 N = OctDecode(encodedNormal);
 
-    // Skip sky pixels (depth == 1.0 or 0.0 depending on convention)
-    if (depth >= 1.0 || depth <= 0.0) {
-        imageStore(u_OutputAO, pixel, vec4(1.0));
-        return;
+    // Blue noise for jitter (spatiotemporal)
+    vec2 noiseUV   = vec2(coord) / 128.0;  // tile the 128x128 noise texture
+    float noiseR   = texture(u_BlueNoise, noiseUV + vec2(float(u_FrameIndex % 64) * 0.0625, 0.0)).r;
+    float noiseG   = texture(u_BlueNoise, noiseUV + vec2(0.0, float(u_FrameIndex % 64) * 0.0625)).g;
+
+    // Offset worldPos slightly along normal to avoid self-intersection
+    vec3 origin = worldPos + N * 0.005;
+
+    float occlusion = 0.0;
+    for (int i = 0; i < u_NumRays; i++) {
+        // Low-discrepancy + animated noise for spiral pattern
+        vec2 xi = fract(Hammersley(uint(i), uint(u_NumRays)) + vec2(noiseR, noiseG));
+        vec3 rayDir = TangentToWorld(CosineHemisphere(xi), N);
+
+        // Any-hit trace
+        if (TraceAnyHit(origin, rayDir, u_Radius)) {
+            occlusion += 1.0;
+        }
     }
 
-    // Reconstruct world position
-    vec3 worldPos = ReconstructWorldPos(uv, depth);
-
-    // Sample world-space normal from G-Buffer
-    vec3 normal = normalize(texture(u_Normals, uv).rgb);
-
-    // Generate random seed from pixel position + frame counter
-    uint seed = WangHash(uint(pixel.x) + WangHash(uint(pixel.y) + WangHash(uint(u_FrameCounter))));
-
-    // Sample blue noise for better spatial distribution
-    ivec2 noiseCoord = pixel % ivec2(128);
-    vec2 blueNoiseSample = texelFetch(u_BlueNoise, noiseCoord, 0).rg;
-
-    // Animate noise across frames to get temporal variation
-    float goldenRatio = 1.61803398875;
-    vec2 xi = fract(blueNoiseSample + float(u_FrameCounter % 64) * vec2(goldenRatio, goldenRatio * goldenRatio));
-
-    // Generate cosine-weighted hemisphere direction around normal
-    vec3 rayDir = CosineWeightedHemisphere(normal, xi);
-
-    // Offset origin slightly along normal to prevent self-intersection
-    vec3 rayOrigin = worldPos + normal * 0.01;
-
-    // Trace a short-range any-hit ray
-    bool occluded = TraceAnyHit(rayOrigin, rayDir, u_AORadius);
-
-    // Write raw occlusion (1.0 = visible/lit, 0.0 = occluded)
-    float ao = occluded ? 0.0 : 1.0;
-
-    // Apply intensity scaling
-    ao = mix(1.0, ao, u_AOIntensity);
-
-    imageStore(u_OutputAO, pixel, vec4(ao));
+    float ao = 1.0 - (occlusion / float(u_NumRays));
+    imageStore(u_AOOutput, coord, vec4(ao, 0.0, 0.0, 0.0));
 }

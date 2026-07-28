@@ -27,15 +27,21 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] IBL shaders: `ibl_equirect.glsl`, `ibl_irradiance.glsl`, `ibl_prefilter.glsl`, `ibl_brdf_lut.glsl` (uncommitted)
 - [x] C++ Pass classes created (uncommitted): `RTAOPass.h/.cpp`, `DDGIPass.h/.cpp`, `IBLPass.h/.cpp`, `BloomPass.h/.cpp`
 
-## Completed Tasks (Part 2)
-1. [x] **TAAPass.h/.cpp** — check if it exists in `src/Renderer/Passes/`, if not create it
-2. [x] **CMakeLists.txt** — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)
-3. [x] **Commit everything uncommitted** — `git add -A && git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"`
-4. [x] **Renderer.cpp integration** — wire all passes into `ExecuteQueue()`
-5. [x] **Build clean** — `cmake --build build --config Debug`
-6. [x] **Commit integration** — `feat(renderer): integrate AAA pipeline into Renderer::ExecuteQueue`
-7. [x] **Merge to master** — `git checkout master && git merge engine && git push origin master`
-8. [x] **Update Docs/Architecture.md and Docs/Decisions.md**
+## NEXT TASK (incomplete — pick up here)
+1. **TAAPass.h/.cpp** — check if it exists in `src/Renderer/Passes/`, if not create it
+2. **CMakeLists.txt** — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)
+3. **Commit everything uncommitted** — `git add -A && git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"`
+4. **Renderer.cpp integration** — wire all passes into `ExecuteQueue()`:
+   - After geometry pass: run `RTAOPass::Execute(gDepthID, gNormalID, ...)`
+   - Run `DDGIPass::Execute(sunDir, sunColor, ...)` 
+   - In lighting pass: bind RTAO output (slot 7) + DDGI atlas (slot 8) + IBL maps (slots 4,5,6)
+   - After HDR buffer: run `TAAPass::Execute(hdrColorID, velocityID, depthID, frame)`
+   - After TAA: run `BloomPass::Execute(taaResolvedID, threshold, strength)`
+   - Replace post_process.glsl with `tonemap.glsl` (ACES)
+   - Track `s_FrameIndex` counter in Renderer.cpp
+   - Apply Halton jitter to projection matrix before BeginScene
+5. **Build clean** — `cmake --build build --config Debug`
+6. **Commit integration** — `feat(renderer): integrate AAA pipeline into Renderer::ExecuteQueue`
+7. **Merge to master** — `git checkout master && git merge engine && git push origin master`
+8. **Update Docs/Architecture.md and Docs/Decisions.md**
 
-## Objective Status
-**ACHIEVED**. AAA Renderer Upgrade is complete and merged to master.
