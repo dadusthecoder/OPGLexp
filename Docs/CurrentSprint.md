@@ -30,9 +30,12 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] CMakeLists.txt — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)
 - [x] Commit everything uncommitted — `git add -A && git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"`
 - [x] Re-establish Sponza benchmark scene — loaded `res/models/sponza/sponza.obj` in `src/main.cpp` and re-enabled RTAO execution in `Renderer.cpp`
+- [x] Added `Renderer Settings` ImGui panel to toggle post-processing and RT effects dynamically.
+- [x] Fixed Bloom blurring issue by adding threshold logic.
+- [x] Implemented Ray-Traced Shadows (`RTShadowPass`) via Compute Shader BVH `TraceAnyHit` + bilateral `shadow_blur.comp`.
 
 ## Objective Status
-**ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up.
+**ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up with Ray-Traced Shadows and dynamic Editor settings.
 
 ---
 
