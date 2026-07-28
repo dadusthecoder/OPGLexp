@@ -107,6 +107,10 @@ namespace lgt {
         glBindTexture(GL_TEXTURE_2D, depthID);
         s_TAAShader->SetInt("u_Depth", 3);
 
+        s_TAAShader->SetFloat2("u_Resolution", glm::vec2((float)s_Width, (float)s_Height));
+        // If camera is moving fast, we might want higher blend factor. For now, constant 0.1f.
+        s_TAAShader->SetFloat("u_BlendFactor", 0.1f);
+
         glBindVertexArray(s_QuadVAO); // Can be empty VAO
         glDrawArrays(GL_TRIANGLES, 0, 3);
 

@@ -4,6 +4,7 @@
 #include "../Resources/Mesh.h"
 #include "Framebuffer.h"
 #include <iostream>
+#include <glm/gtc/matrix_transform.hpp>
 #include "../../Helpers/DebugStats.h"
 #include "../../Helpers/Logger.h"
 #include "../Passes/BVHPass.h"
@@ -224,7 +225,9 @@ namespace lgt {
     static glm::vec3 s_CameraPosition = glm::vec3(0.0f);
 
     void Renderer::BeginScene(const glm::mat4& viewProjection, const glm::vec3& cameraPosition) {
-        s_ViewProjection = viewProjection;
+        glm::vec2 jitter = GetJitter();
+        glm::mat4 jitterMat = glm::translate(glm::mat4(1.0f), glm::vec3(jitter.x, jitter.y, 0.0f));
+        s_ViewProjection = jitterMat * viewProjection;
         s_CameraPosition = cameraPosition;
     }
 
