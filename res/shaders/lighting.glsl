@@ -122,7 +122,18 @@ float ShadowCalculation(vec3 worldPos, vec3 N, vec3 L) {
     }
     if (layer == -1) layer = 3;
 
-    vec4 fragPosLightSpace = u_LightSpaceMatrices[layer] * vec4(worldPos, 1.0);
+    float NdotL = max(dot(N, L), 0.0);
+    
+    // Base slope-dependent offset scale
+    float offsetScale = 0.05 * (layer + 1.0) * (1.0 - NdotL);
+    
+    // Shift position along normal
+    vec3 offsetWorldPos = worldPos + N * offsetScale;
+    
+    // Also push slightly towards light
+    offsetWorldPos += L * 0.01 * (layer + 1.0);
+
+    vec4 fragPosLightSpace = u_LightSpaceMatrices[layer] * vec4(offsetWorldPos, 1.0);
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     
@@ -131,7 +142,8 @@ float ShadowCalculation(vec3 worldPos, vec3 N, vec3 L) {
     }
 
     float currentDepth = projCoords.z;
-    float bias = max(0.005 * (1.0 - dot(N, L)), 0.0005) * (layer + 1);
+    // Keep a very small fixed depth bias to handle flat surfaces
+    float bias = 0.001 * (layer + 1.0);
 
     float shadow = 0.0;
     vec2 texelSize = 1.0 / vec2(textureSize(u_ShadowCascades, 0));
