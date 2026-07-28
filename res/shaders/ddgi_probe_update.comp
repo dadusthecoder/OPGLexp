@@ -1,0 +1,60 @@
+#version 460 core
+#include "include/common.glsl"
+#include "include/sampling.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+// One workgroup per probe. Thread (x,y) = texel within the 8x8 probe region.
+
+uniform ivec3 u_ProbeGridSize;
+uniform int   u_RaysPerProbe;       // 64
+uniform float u_Hysteresis;         // 0.97
+uniform int   u_IrradianceTexSize;  // 8 (texels per probe in each dim, not counting border)
+
+struct ProbeRayData { vec4 radiance; vec4 direction; };
+layout(std430, binding = 8) readonly buffer ProbeRayBuffer { ProbeRayData rayData[]; };
+
+layout(rgba16f, binding = 0) uniform image2D u_IrradianceAtlas;
+
+void main() {
+    uint probeIndex = gl_WorkGroupID.x +
+                      gl_WorkGroupID.y * uint(u_ProbeGridSize.x) +
+                      gl_WorkGroupID.z * uint(u_ProbeGridSize.x * u_ProbeGridSize.y);
+
+    uint totalProbes = uint(u_ProbeGridSize.x * u_ProbeGridSize.y * u_ProbeGridSize.z);
+    if (probeIndex >= totalProbes) return;
+
+    // Texel coordinate within the probe's region (0..texSize-1)
+    ivec2 localTexel = ivec2(gl_LocalInvocationID.xy);
+    if (localTexel.x >= u_IrradianceTexSize || localTexel.y >= u_IrradianceTexSize) return;
+
+    // Atlas layout: each probe takes (texSize+2) x (texSize+2) including 1px border
+    int stride = u_IrradianceTexSize + 2;
+    int probesPerRow = int(gl_NumWorkGroups.x); // == probeGridSize.x
+    int atlasX = int(probeIndex % uint(probesPerRow)) * stride + 1 + localTexel.x;
+    int atlasY = int(probeIndex / uint(probesPerRow)) * stride + 1 + localTexel.y;
+    ivec2 atlasCoord = ivec2(atlasX, atlasY);
+
+    // World direction this texel covers (octahedral mapping)
+    vec2 texelUV = (vec2(localTexel) + 0.5) / float(u_IrradianceTexSize);
+    vec3 texelDir = OctahedralDecode(texelUV);
+
+    // Accumulate irradiance from all probe rays
+    vec3 sumIrradiance = vec3(0.0);
+    float sumWeight = 0.0;
+    uint baseIdx = probeIndex * uint(u_RaysPerProbe);
+
+    for (int r = 0; r < u_RaysPerProbe; r++) {
+        vec3 rayDir    = rayData[baseIdx + uint(r)].direction.xyz;
+        vec3 radiance  = rayData[baseIdx + uint(r)].radiance.xyz;
+        float w = max(0.0, dot(texelDir, rayDir));
+        sumIrradiance += radiance * w;
+        sumWeight     += w;
+    }
+
+    vec3 newIrradiance = (sumWeight > EPSILON) ? (sumIrradiance / sumWeight) : vec3(0.0);
+
+    // Temporal blend
+    vec3 prev = imageLoad(u_IrradianceAtlas, atlasCoord).rgb;
+    vec3 blended = mix(newIrradiance, prev, u_Hysteresis);
+    imageStore(u_IrradianceAtlas, atlasCoord, vec4(blended, 1.0));
+}

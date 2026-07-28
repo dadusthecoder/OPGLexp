@@ -1,0 +1,47 @@
+#version 460 core
+#include "include/common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+uniform sampler2D u_gDepth;
+uniform sampler2D u_gNormal;
+layout(r8)  readonly  uniform image2D u_AOInput;
+layout(r8)  writeonly uniform image2D u_AOOutput;
+uniform vec2 u_Resolution;
+uniform mat4 u_InvViewProjection;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(u_Resolution.x) || coord.y >= int(u_Resolution.y)) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / u_Resolution;
+    float centerDepth  = texture(u_gDepth, uv).r;
+    vec3  centerNormal = OctDecode(texture(u_gNormal, uv).rg);
+
+    if (centerDepth >= 1.0) { imageStore(u_AOOutput, coord, vec4(1.0)); return; }
+
+    float totalWeight = 0.0;
+    float totalAO     = 0.0;
+    int radius = 2;
+
+    for (int dy = -radius; dy <= radius; dy++) {
+    for (int dx = -radius; dx <= radius; dx++) {
+        ivec2 sampleCoord = coord + ivec2(dx, dy);
+        vec2  sampleUV    = (vec2(sampleCoord) + 0.5) / u_Resolution;
+
+        float sDepth  = texture(u_gDepth, sampleUV).r;
+        vec3  sNormal = OctDecode(texture(u_gNormal, sampleUV).rg);
+
+        // Bilateral weights: depth edge-stop + normal edge-stop
+        float depthWeight  = exp(-abs(centerDepth - sDepth) * 200.0);
+        float normalWeight = pow(max(0.0, dot(centerNormal, sNormal)), 32.0);
+        float w = depthWeight * normalWeight;
+
+        float ao = imageLoad(u_AOInput, sampleCoord).r;
+        totalAO     += ao * w;
+        totalWeight += w;
+    }}
+
+    float result = totalWeight > EPSILON ? totalAO / totalWeight : 1.0;
+    imageStore(u_AOOutput, coord, vec4(result, 0.0, 0.0, 0.0));
+}
