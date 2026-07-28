@@ -254,17 +254,21 @@ namespace lgt {
     }
 
     static glm::vec3 s_CameraPosition = glm::vec3(0.0f);
+    static float s_ZNear = 0.1f;
+    static float s_ZFar = 1000.0f;
 
     glm::mat4 s_ViewMatrix;
     glm::mat4 s_ProjMatrix;
 
-    void Renderer::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition) {
+    void Renderer::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition, float nearPlane, float farPlane) {
         glm::vec2 jitter = GetJitter();
         glm::mat4 jitterMat = glm::translate(glm::mat4(1.0f), glm::vec3(jitter.x, jitter.y, 0.0f));
         s_ViewMatrix = viewMatrix;
         s_ProjMatrix = projMatrix;
         s_ViewProjection = jitterMat * projMatrix * viewMatrix;
         s_CameraPosition = cameraPosition;
+        s_ZNear = nearPlane;
+        s_ZFar = farPlane;
     }
 
     void Renderer::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
@@ -542,7 +546,7 @@ namespace lgt {
                     }
                 };
 
-                CSMPass::Execute(s_ViewMatrix, s_ProjMatrix, sunDir, 0.1f, 1000.0f, csmRenderCallback);
+                CSMPass::Execute(s_ViewMatrix, s_ProjMatrix, sunDir, s_ZNear, s_ZFar, csmRenderCallback);
             }
         }
 
@@ -573,7 +577,7 @@ namespace lgt {
             s_LightDataBuffer->SetData(stdLights.data(), stdLights.size() * sizeof(Std430Light));
             s_LightDataBuffer->BindBase(1); // Binding 1 for lights
 
-            LightCullingPass::Execute(s_ViewMatrix, s_ProjMatrix, glm::inverse(s_ProjMatrix), (uint32_t)s_Lights.size());
+            LightCullingPass::Execute(s_ViewMatrix, s_ProjMatrix, glm::inverse(s_ProjMatrix), (uint32_t)s_Lights.size(), s_ZNear, s_ZFar);
         }
 
         // --- 2. Lighting Pass (to HDR Buffer) ---
@@ -589,8 +593,8 @@ namespace lgt {
             s_LightingShader->SetFloat3("u_CameraPos", s_CameraPosition);
             s_LightingShader->SetMat4("u_ViewMatrix", s_ViewMatrix);
             s_LightingShader->SetInt3("u_GridSize", LightCullingPass::GetGridSize());
-            s_LightingShader->SetFloat("u_ZNear", 0.1f);
-            s_LightingShader->SetFloat("u_ZFar", 1000.0f);
+            s_LightingShader->SetFloat("u_ZNear", s_ZNear);
+            s_LightingShader->SetFloat("u_ZFar", s_ZFar);
 
             // Bind G-Buffer textures
             s_GBuffer->GetColorAttachment(0)->Bind(0); // AlbedoSpec
@@ -643,7 +647,16 @@ namespace lgt {
             s_LightingShader->SetInt3("u_DDGIProbeGridSize", glm::ivec3(DDGIPass::GetGridSize().x, DDGIPass::GetGridSize().y, DDGIPass::GetGridSize().z));
             s_LightingShader->SetFloat3("u_DDGIProbeOrigin", DDGIPass::GetProbeOrigin());
             s_LightingShader->SetFloat3("u_DDGIProbeSpacing", DDGIPass::GetProbeSpacing());
-            
+            s_LightingShader->SetInt("u_DDGIProbesPerRow", DDGIPass::GetProbesPerRow());
+
+            // Bind DDGI distance atlas (texture unit 10)
+            glActiveTexture(GL_TEXTURE10);
+            glBindTexture(GL_TEXTURE_2D, DDGIPass::GetDistanceAtlasID());
+            s_LightingShader->SetInt("u_DDGIDistance", 10);
+
+            // Bind DDGI probe state buffer (SSBO binding 10)
+            DDGIPass::GetProbeStateBuffer()->BindBase(10);
+
             glBindVertexArray(s_QuadVAO);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 

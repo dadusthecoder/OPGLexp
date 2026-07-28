@@ -59,6 +59,10 @@ layout(binding = 6) uniform sampler2D u_BrdfLut;
 layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
 layout(binding = 9) uniform sampler2DArray u_ShadowCascades;
+layout(binding = 10) uniform sampler2D u_DDGIDistance;
+
+layout(std430, binding = 10) readonly buffer DDGIProbeStateBuffer { vec4 b_DDGIProbeState[]; };
+
 
 uniform mat4 u_LightSpaceMatrices[4];
 uniform float u_CascadeSplits[4];
@@ -70,6 +74,8 @@ uniform mat4 u_InvViewProjection;
 uniform ivec3 u_DDGIProbeGridSize;
 uniform vec3 u_DDGIProbeOrigin;
 uniform vec3 u_DDGIProbeSpacing;
+uniform int u_DDGIProbesPerRow;
+
 
 uniform int u_EnableRTAO;
 uniform int u_EnableDDGI;
@@ -77,38 +83,76 @@ uniform int u_EnableRTShadows;
 uniform int u_EnableIBL;
 
 vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
-    vec3 gridPos = (worldPos - u_DDGIProbeOrigin) / u_DDGIProbeSpacing;
+    // Surface bias to prevent self-shadow / shadow acne
+    vec3 V = SafeNormalize(u_CameraPos - worldPos);
+    vec3 biasedPos = worldPos + (normal * 0.2 + V * 0.8) * length(u_DDGIProbeSpacing) * 0.1;
+
+    vec3 gridPos = (biasedPos - u_DDGIProbeOrigin) / u_DDGIProbeSpacing;
     ivec3 baseProbe = clamp(ivec3(gridPos), ivec3(0), u_DDGIProbeGridSize - 2);
     vec3 alpha = fract(gridPos);
-    
+
+    int probesPerRow = u_DDGIProbesPerRow;
     vec3 irradiance = vec3(0.0);
     float totalWeight = 0.0;
-    
+
     for (int z = 0; z <= 1; z++) {
     for (int y = 0; y <= 1; y++) {
     for (int x = 0; x <= 1; x++) {
-        ivec3 probeIdx = clamp(baseProbe + ivec3(x,y,z), ivec3(0), u_DDGIProbeGridSize-1);
-        int linearIdx = probeIdx.x + probeIdx.y * u_DDGIProbeGridSize.x + probeIdx.z * u_DDGIProbeGridSize.x * u_DDGIProbeGridSize.y;
-        
-        // Trilinear weight
+        ivec3 probeIdx3 = clamp(baseProbe + ivec3(x, y, z), ivec3(0), u_DDGIProbeGridSize - 1);
+        vec3 probeWorldPos = u_DDGIProbeOrigin + vec3(probeIdx3) * u_DDGIProbeSpacing;
+
+        // Read probe state (relocation offset + active/dead)
+        int linearIdx = probeIdx3.x + probeIdx3.y * u_DDGIProbeGridSize.x + probeIdx3.z * u_DDGIProbeGridSize.x * u_DDGIProbeGridSize.y;
+        vec4 state = b_DDGIProbeState[linearIdx];
+        probeWorldPos += state.xyz; // Apply relocation
+
+        // Skip dead probes
+        if (state.w < 0.5) continue;
+
+        // --- Weight 1: Trilinear ---
         vec3 triW = mix(1.0 - alpha, alpha, vec3(x, y, z));
         float w = triW.x * triW.y * triW.z;
-        
-        // Atlas UV for this probe's irradiance (8x8 texels + 2px border per probe)
-        int stride = 10;  // 8 + 2 border
-        int probesPerRow = u_DDGIProbeGridSize.x;
-        int atlasX = (linearIdx % probesPerRow) * stride + 1;
-        int atlasY = (linearIdx / probesPerRow) * stride + 1;
-        
-        // Sample using octahedral direction
-        vec2 octUV = OctEncode(normal) * float(8) / textureSize(u_DDGIIrradiance, 0);
-        vec2 probeBaseUV = (vec2(atlasX, atlasY) + 0.5) / vec2(textureSize(u_DDGIIrradiance, 0));
-        vec2 sampleUV = probeBaseUV + octUV;
-        
-        irradiance += texture(u_DDGIIrradiance, sampleUV).rgb * w;
+
+        // --- Weight 2: Backface rejection ---
+        vec3 probeToSurface = normalize(biasedPos - probeWorldPos);
+        float backfaceW = max(0.05, dot(probeToSurface, normal));
+        w *= backfaceW;
+
+        // --- Weight 3: Chebyshev visibility ---
+        vec3 dirToProbe = probeWorldPos - biasedPos;
+        float distToProbe = length(dirToProbe);
+        dirToProbe /= max(distToProbe, EPSILON);
+
+        // Atlas UV for distance texture (16x16 tiles, 14x14 inner)
+        int atlasLinear = (probeIdx3.z * u_DDGIProbeGridSize.x + probeIdx3.x) + probeIdx3.y * probesPerRow;
+        int tileX_d = atlasLinear % probesPerRow;
+        int tileY_d = atlasLinear / probesPerRow;
+        vec2 octUV_d = OctEncode(-dirToProbe);
+        vec2 distTexelUV = (vec2(tileX_d * 16 + 1, tileY_d * 16 + 1) + octUV_d * 14.0) / vec2(textureSize(u_DDGIDistance, 0));
+        vec2 moments = texture(u_DDGIDistance, distTexelUV).rg;
+
+        float meanDist = moments.x;
+        float meanDistSq = moments.y;
+
+        if (distToProbe > meanDist) {
+            float variance = max(meanDistSq - meanDist * meanDist, 0.0001);
+            float diff = distToProbe - meanDist;
+            float pMax = variance / (variance + diff * diff);
+            float chebyshevW = max(pow(max((pMax - 0.25) / 0.75, 0.0), 3.0), 0.0);
+            w *= chebyshevW;
+        }
+
+        // --- Sample irradiance ---
+        int tileX_i = atlasLinear % probesPerRow;
+        int tileY_i = atlasLinear / probesPerRow;
+        vec2 octUV_i = OctEncode(normal);
+        vec2 irrTexelUV = (vec2(tileX_i * 8 + 1, tileY_i * 8 + 1) + octUV_i * 6.0) / vec2(textureSize(u_DDGIIrradiance, 0));
+        vec3 probeIrr = pow(texture(u_DDGIIrradiance, irrTexelUV).rgb, vec3(5.0)); // Gamma decode
+
+        irradiance += probeIrr * w;
         totalWeight += w;
     }}}
-    
+
     return (totalWeight > 0.001) ? irradiance / totalWeight : vec3(0.0);
 }
 
@@ -125,14 +169,14 @@ float ShadowCalculation(vec3 worldPos, vec3 N, vec3 L) {
 
     float NdotL = max(dot(N, L), 0.0);
     
-    // Base slope-dependent offset scale
-    float offsetScale = 0.05 * (layer + 1.0) * (1.0 - NdotL);
+    // Normal offset to push outside the shadow acne zone
+    float offsetScale = 0.05 * (1.0 - NdotL);
     
     // Shift position along normal
     vec3 offsetWorldPos = worldPos + N * offsetScale;
     
-    // Also push slightly towards light
-    offsetWorldPos += L * 0.01 * (layer + 1.0);
+    // Push slightly towards light to further prevent self-shadowing
+    offsetWorldPos += L * 0.01;
 
     vec4 fragPosLightSpace = u_LightSpaceMatrices[layer] * vec4(offsetWorldPos, 1.0);
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -143,8 +187,8 @@ float ShadowCalculation(vec3 worldPos, vec3 N, vec3 L) {
     }
 
     float currentDepth = projCoords.z;
-    // Keep a very small fixed depth bias to handle flat surfaces
-    float bias = 0.001 * (layer + 1.0);
+    // Keep bias very small because Z is already linear in ortho space
+    float bias = max(0.001 * (1.0 - NdotL), 0.0005);
 
     float shadow = 0.0;
     vec2 texelSize = 1.0 / vec2(textureSize(u_ShadowCascades, 0));

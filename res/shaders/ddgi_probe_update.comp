@@ -3,59 +3,97 @@
 #include "include/common.glsl"
 #include "include/sampling.glsl"
 
-layout(local_size_x = 8, local_size_y = 8) in;
-// One workgroup per probe. Thread (x,y) = texel within the 8x8 probe region.
+layout(local_size_x = 16, local_size_y = 16) in;
 
 uniform ivec3 u_ProbeGridSize;
-uniform int   u_RaysPerProbe;       // 64
-uniform float u_Hysteresis;         // 0.97
-uniform int   u_IrradianceTexSize;  // 8 (texels per probe in each dim, not counting border)
+uniform int u_RaysPerProbe;
+uniform float u_Hysteresis;
+uniform int u_Mode;
+uniform float u_GammaExponent;
 
 struct ProbeRayData { vec4 radiance; vec4 direction; };
+
 layout(std430, binding = 8) readonly buffer ProbeRayBuffer { ProbeRayData rayData[]; };
+layout(std430, binding = 10) readonly buffer ProbeStateBuffer { vec4 probeState[]; };
 
 layout(rgba16f, binding = 0) uniform image2D u_IrradianceAtlas;
+layout(rg16f, binding = 1) uniform image2D u_DistanceAtlas;
 
 void main() {
-    uint probeIndex = gl_WorkGroupID.x +
-                      gl_WorkGroupID.y * uint(u_ProbeGridSize.x) +
-                      gl_WorkGroupID.z * uint(u_ProbeGridSize.x * u_ProbeGridSize.y);
+    uint probeIndex = gl_WorkGroupID.x;
+    int totalProbes = u_ProbeGridSize.x * u_ProbeGridSize.y * u_ProbeGridSize.z;
+    if (probeIndex >= uint(totalProbes)) return;
 
-    uint totalProbes = uint(u_ProbeGridSize.x * u_ProbeGridSize.y * u_ProbeGridSize.z);
-    if (probeIndex >= totalProbes) return;
+    int innerSize = (u_Mode == 0) ? 6 : 14;
+    int tileSize = (u_Mode == 0) ? 8 : 16;
+    
+    if (gl_LocalInvocationID.x >= uint(innerSize) || gl_LocalInvocationID.y >= uint(innerSize)) return;
+    
+    // Decompose probeIndex to 3D grid coords (must match trace shader linearization)
+    int px = int(probeIndex) % u_ProbeGridSize.x;
+    int py = (int(probeIndex) / u_ProbeGridSize.x) % u_ProbeGridSize.y;
+    int pz = int(probeIndex) / (u_ProbeGridSize.x * u_ProbeGridSize.y);
 
-    // Texel coordinate within the probe's region (0..texSize-1)
-    ivec2 localTexel = ivec2(gl_LocalInvocationID.xy);
-    if (localTexel.x >= u_IrradianceTexSize || localTexel.y >= u_IrradianceTexSize) return;
-
-    // Atlas layout: each probe takes (texSize+2) x (texSize+2) including 1px border
-    int stride = u_IrradianceTexSize + 2;
-    int probesPerRow = int(gl_NumWorkGroups.x); // == probeGridSize.x
-    int atlasX = int(probeIndex % uint(probesPerRow)) * stride + 1 + localTexel.x;
-    int atlasY = int(probeIndex / uint(probesPerRow)) * stride + 1 + localTexel.y;
-    ivec2 atlasCoord = ivec2(atlasX, atlasY);
-
-    // World direction this texel covers (octahedral mapping)
-    vec2 texelUV = (vec2(localTexel) + 0.5) / float(u_IrradianceTexSize);
+    // Atlas tile position: flatten XZ per Y-layer
+    int probesPerRow = u_ProbeGridSize.x * u_ProbeGridSize.z;
+    int atlasLinear = (pz * u_ProbeGridSize.x + px) + py * probesPerRow;
+    int tileX = atlasLinear % probesPerRow;
+    int tileY = atlasLinear / probesPerRow;
+    
+    ivec2 atlasCoord = ivec2(tileX * tileSize + 1 + int(gl_LocalInvocationID.x), tileY * tileSize + 1 + int(gl_LocalInvocationID.y));
+    
+    vec2 texelUV = (vec2(gl_LocalInvocationID.xy) + 0.5) / float(innerSize);
     vec3 texelDir = OctahedralDecode(texelUV);
-
-    // Accumulate irradiance from all probe rays
-    vec3 sumIrradiance = vec3(0.0);
+    
     float sumWeight = 0.0;
-    uint baseIdx = probeIndex * uint(u_RaysPerProbe);
-
-    for (int r = 0; r < u_RaysPerProbe; r++) {
-        vec3 rayDir    = rayData[baseIdx + uint(r)].direction.xyz;
-        vec3 radiance  = rayData[baseIdx + uint(r)].radiance.xyz;
-        float w = max(0.0, dot(texelDir, rayDir));
-        sumIrradiance += radiance * w;
-        sumWeight     += w;
+    vec3 sumRadiance = vec3(0.0);
+    float sumDist = 0.0;
+    float sumDistSq = 0.0;
+    
+    uint rayStartIdx = probeIndex * uint(u_RaysPerProbe);
+    
+    for (int i = 0; i < u_RaysPerProbe; ++i) {
+        vec3 rayDir = rayData[rayStartIdx + i].direction.xyz;
+        vec4 rayRad = rayData[rayStartIdx + i].radiance;
+        float hitDist = rayRad.w;
+        
+        float weight = max(0.0, dot(texelDir, rayDir));
+        if (weight > EPSILON) {
+            if (u_Mode == 0) {
+                sumRadiance += rayRad.rgb * weight;
+                sumWeight += weight;
+            } else {
+                if (hitDist >= 0.0) { // front face or miss
+                    float dist = hitDist;
+                    sumDist += dist * weight;
+                    sumDistSq += dist * dist * weight;
+                    sumWeight += weight;
+                }
+            }
+        }
     }
-
-    vec3 newIrradiance = (sumWeight > EPSILON) ? (sumIrradiance / sumWeight) : vec3(0.0);
-
-    // Temporal blend
-    vec3 prev = imageLoad(u_IrradianceAtlas, atlasCoord).rgb;
-    vec3 blended = mix(newIrradiance, prev, u_Hysteresis);
-    imageStore(u_IrradianceAtlas, atlasCoord, vec4(blended, 1.0));
+    
+    if (u_Mode == 0) {
+        vec3 newVal = vec3(0.0);
+        if (sumWeight > EPSILON) {
+            newVal = sumRadiance / sumWeight;
+        }
+        newVal = pow(newVal, vec3(1.0 / u_GammaExponent));
+        
+        vec4 prev = imageLoad(u_IrradianceAtlas, atlasCoord);
+        float effectiveHysteresis = u_Hysteresis;
+        if (length(newVal - prev.rgb) > 0.25) {
+            effectiveHysteresis = 0.0;
+        }
+        vec3 blended = mix(newVal, prev.rgb, effectiveHysteresis);
+        imageStore(u_IrradianceAtlas, atlasCoord, vec4(blended, 1.0));
+    } else {
+        vec2 newVal = vec2(0.0);
+        if (sumWeight > EPSILON) {
+            newVal = vec2(sumDist / sumWeight, sumDistSq / sumWeight);
+        }
+        vec2 prev = imageLoad(u_DistanceAtlas, atlasCoord).rg;
+        vec2 blended = mix(newVal, prev, u_Hysteresis);
+        imageStore(u_DistanceAtlas, atlasCoord, vec4(blended, 0.0, 0.0));
+    }
 }

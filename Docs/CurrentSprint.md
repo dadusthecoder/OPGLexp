@@ -39,17 +39,20 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] Fixed GPU memory overwrite issue by correctly sizing `s_GlobalIndirectDrawBuffer` for meshlet counts when culling is disabled during shadow passes.
 
 ## Objective Status
-**ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up with Ray-Traced Shadows and dynamic Editor settings.
+**ACHIEVED** — DDGI Production-Grade Overhaul complete.
 
 ---
 
-# Next Sprint (Upcoming)
+# Completed Sprint: DDGI Production-Grade Overhaul
 
-## Objective
-**Geometry Pipeline Overhaul & SPOM Integration**
-
-## Planned Tasks
-1. **Static/Dynamic Geometry Split**: Overhaul `Renderer::ExecuteQueue` to stop clearing and rebuilding meshlet buffers every frame. Introduce a dual-pipeline for static vs dynamic entities.
-2. **Dynamic Instance Buffer**: Implement a dynamic buffer for moving geometry to be culled and drawn separately from the static background.
-3. **Silhouette Parallax Occlusion Mapping (SPOM)**: Introduce advanced Parallax Occlusion Mapping into the material and G-Buffer system to "fake" dense geometric depth (Crimson Desert style) for brick and stone surfaces without increasing polygon count.
-4. **Height Map Support**: Update bindless texture loading to support displacement/height maps required for SPOM.
+## All Tasks Complete
+- [x] `DDGIPass.h` — Rewritten (distance atlas, probe state buffer, 4 shaders)
+- [x] `DDGIPass.cpp` — Rewritten (6-pass pipeline, correct atlas dimensions)
+- [x] `ddgi_probe_trace.comp` — Rewritten (Rodrigues rotation, multi-bounce, backface detect, TraceAnyHit fixed)
+- [x] `ddgi_probe_update.comp` — Rewritten (dual mode irradiance/distance, gamma 5.0 encoding, change detection)
+- [x] `ddgi_border_copy.comp` — NEW (octahedral border mirroring, probeIndex→3D→atlas decomposition fixed)
+- [x] `ddgi_probe_classify.comp` — NEW (backface counting, probe relocation, state management)
+- [x] `lighting.glsl` — SampleDDGI rewritten (Chebyshev visibility + backface rejection + probe state + gamma decode)
+- [x] `Renderer.cpp` — Distance atlas (unit 10), probe state SSBO (binding 10), probesPerRow uniform
+- [x] Build Debug succeeds, shaders copied
+- [x] Roadmap/DDGI.md updated

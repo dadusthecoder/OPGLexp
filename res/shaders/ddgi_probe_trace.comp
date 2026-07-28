@@ -3,12 +3,11 @@
 #include "include/common.glsl"
 #include "include/sampling.glsl"
 #include "include/bvh.glsl"
-#include "include/brdf.glsl"
 
 layout(local_size_x = 64) in;
 // One workgroup per probe, 64 threads = 64 rays per probe
 
-uniform ivec3 u_ProbeGridSize;   // e.g. (8, 4, 8)
+uniform ivec3 u_ProbeGridSize;
 uniform vec3  u_ProbeOrigin;
 uniform vec3  u_ProbeSpacing;
 uniform float u_MaxRayDistance;
@@ -16,68 +15,98 @@ uniform int   u_FrameIndex;
 uniform vec3  u_SunDirection;
 uniform vec3  u_SunColor;
 uniform float u_SunIntensity;
+uniform int   u_ProbesPerRow;
 
-
-struct ProbeRayData {
-    vec4 radiance;   // xyz = radiance, w = unused
-    vec4 direction;  // xyz = dir, w = hitDist (-1 = miss)
-};
+struct ProbeRayData { vec4 radiance; vec4 direction; };
 
 layout(std430, binding = 8) writeonly buffer ProbeRayBuffer { ProbeRayData rayData[]; };
+layout(std430, binding = 10) readonly buffer ProbeStateBuffer { vec4 probeState[]; };
+
+layout(binding = 8) uniform sampler2D u_PrevIrradiance;
 
 void main() {
     uint probeIndex = gl_WorkGroupID.x;
     uint rayIndex   = gl_LocalInvocationIndex;
-    uint raysPerProbe = 64u;
-
     uint totalProbes = uint(u_ProbeGridSize.x * u_ProbeGridSize.y * u_ProbeGridSize.z);
     if (probeIndex >= totalProbes) return;
 
-    // Probe 3D position
+    // Read probe relocation state
+    vec4 state = probeState[probeIndex];
+
+    // Decompose probeIndex to 3D grid coords
+    // Linear order: flatten XZ per Y-layer
     uint px = probeIndex % uint(u_ProbeGridSize.x);
     uint py = (probeIndex / uint(u_ProbeGridSize.x)) % uint(u_ProbeGridSize.y);
     uint pz = probeIndex / uint(u_ProbeGridSize.x * u_ProbeGridSize.y);
-    vec3 probePos = u_ProbeOrigin + vec3(px, py, pz) * u_ProbeSpacing;
 
-    // Deterministic direction with per-frame rotation for temporal convergence
-    // Rotate Fibonacci sphere with a random rotation per frame
-    float phi   = Halton(uint(u_FrameIndex), 2u) * TWO_PI;
-    float cosT  = Halton(uint(u_FrameIndex), 3u) * 2.0 - 1.0;
-    float sinT  = sqrt(1.0 - cosT*cosT);
-    vec3 rotAxis = vec3(sinT * cos(phi), sinT * sin(phi), cosT);
-    
-    vec3 baseDir = SphericalFibonacci(rayIndex, raysPerProbe);
-    // Simple rotation around random axis (approximate)
-    float a = WangHashFloat(uint(u_FrameIndex * 7919 + int(rayIndex)));
-    vec3 rayDir = normalize(baseDir + rotAxis * (a - 0.5) * 0.3);
+    vec3 basePos = u_ProbeOrigin + vec3(float(px), float(py), float(pz)) * u_ProbeSpacing;
+    vec3 probePos = basePos + state.xyz; // Apply relocation offset
 
-    // Trace
-    HitInfo hit = TraceClosestHit(probePos + rayDir * 0.01, rayDir, u_MaxRayDistance);
+    // Generate ray direction using Spherical Fibonacci with per-frame 3D rotation (Rodrigues)
+    vec3 baseDir = SphericalFibonacci(rayIndex, 64u);
 
-    vec3 radiance;
-    float hitDist;
+    float angle = WangHashFloat(uint(u_FrameIndex) * 1009u) * TWO_PI;
+    float cosA  = Halton(uint(u_FrameIndex), 2u) * 2.0 - 1.0;
+    float sinA  = sqrt(1.0 - cosA * cosA);
+    float phiA  = Halton(uint(u_FrameIndex), 3u) * TWO_PI;
+    vec3 axis   = vec3(sinA * cos(phiA), sinA * sin(phiA), cosA);
 
-    if (hit.hit) {
-        hitDist = hit.distance;
-        // Evaluate direct illumination at hit point
-        vec3 L = normalize(-u_SunDirection);
-        float NdotL = max(dot(hit.normal, L), 0.0);
-        
-        // Shadow test
-        bool inShadow = TraceAnyHit(hit.position + hit.normal * 0.005, L, 1000.0);
-        
-        // Default albedo 0.5 (no material data per-triangle yet)
-        vec3 albedo = vec3(0.5);
-        vec3 directLight = inShadow ? vec3(0.0) : NdotL * u_SunColor * u_SunIntensity * albedo;
-        radiance = directLight;
-    } else {
-        hitDist = -1.0;
-        // Simple sky dome
-        float skyT = max(0.0, rayDir.y);
-        radiance = mix(vec3(0.4, 0.5, 0.6), vec3(0.7, 0.8, 1.0), skyT) * 0.5;
+    // Rodrigues' rotation formula
+    vec3 rayDir = baseDir * cos(angle)
+                + cross(axis, baseDir) * sin(angle)
+                + axis * dot(axis, baseDir) * (1.0 - cos(angle));
+    rayDir = normalize(rayDir);
+
+    vec3 radiance = vec3(0.0);
+    float hitDist = u_MaxRayDistance;
+
+    // Only trace if probe is active
+    if (state.w >= 0.5) {
+        HitInfo hit = TraceClosestHit(probePos + rayDir * 0.01, rayDir, u_MaxRayDistance);
+
+        if (hit.hit) {
+            bool isBackface = dot(hit.normal, rayDir) > 0.0;
+            hitDist = isBackface ? -hit.distance : hit.distance;
+
+            if (!isBackface) {
+                vec3 albedo = vec3(0.5); // Static albedo (no per-triangle material data yet)
+
+                // Direct sun lighting at hit point
+                vec3 L = normalize(-u_SunDirection);
+                float NdotL = max(dot(hit.normal, L), 0.0);
+
+                // Shadow ray toward sun
+                bool inShadow = TraceAnyHit(hit.position + hit.normal * 0.005, L, 1000.0);
+
+                vec3 directLight = inShadow ? vec3(0.0) : albedo * u_SunColor * u_SunIntensity * NdotL * INV_PI;
+                radiance = directLight;
+
+                // Multi-bounce: sample previous-frame irradiance at hit point
+                int probesPerRow = u_ProbeGridSize.x * u_ProbeGridSize.z;
+                vec3 hitGridPos = (hit.position - u_ProbeOrigin) / u_ProbeSpacing;
+                ivec3 nearestProbe = clamp(ivec3(round(hitGridPos)), ivec3(0), u_ProbeGridSize - 1);
+                int nearestIdx = (nearestProbe.z * u_ProbeGridSize.x + nearestProbe.x)
+                               + nearestProbe.y * probesPerRow;
+
+                int tileX = nearestIdx % probesPerRow;
+                int tileY = nearestIdx / probesPerRow;
+                vec2 octUV = OctEncode(hit.normal); // [0,1] range
+                vec2 texelUV = (vec2(tileX * 8 + 1, tileY * 8 + 1) + octUV * 6.0)
+                             / vec2(textureSize(u_PrevIrradiance, 0));
+                vec3 indirectIrradiance = pow(texture(u_PrevIrradiance, texelUV).rgb, vec3(5.0));
+
+                radiance += albedo * indirectIrradiance;
+            }
+            // Backface hits: radiance stays zero, hitDist is negative
+        } else {
+            // Ray miss: sky gradient
+            hitDist = u_MaxRayDistance;
+            float skyT = max(0.0, rayDir.y);
+            radiance = mix(vec3(0.4, 0.5, 0.6), vec3(0.7, 0.8, 1.0), skyT) * 0.5;
+        }
     }
 
-    uint bufferIdx = probeIndex * raysPerProbe + rayIndex;
-    rayData[bufferIdx].radiance  = vec4(radiance, 0.0);
-    rayData[bufferIdx].direction = vec4(rayDir, hitDist);
+    uint bufferIdx = probeIndex * 64u + rayIndex;
+    rayData[bufferIdx].radiance  = vec4(radiance, hitDist);
+    rayData[bufferIdx].direction = vec4(rayDir, 0.0);
 }
