@@ -5,7 +5,13 @@
 #include "Framebuffer.h"
 #include <iostream>
 #include "../../Helpers/DebugStats.h"
+#include "../../Helpers/Logger.h"
 #include "../Passes/BVHPass.h"
+#include "../Passes/RTAOPass.h"
+#include "../Passes/DDGIPass.h"
+#include "../Passes/IBLPass.h"
+#include "../Passes/TAAPass.h"
+#include "../Passes/BloomPass.h"
 
 namespace lgt {
 
@@ -39,6 +45,11 @@ namespace lgt {
     static std::vector<float> s_GlobalVertices;
     static std::vector<uint32_t> s_GlobalIndices;
     static std::vector<Meshlet> s_GlobalMeshlets;
+    
+    static int s_FrameIndex = 0;
+    static bool s_EnableRTAO = false;
+    static bool s_EnableDDGI = true;
+    static bool s_EnableMeshletCulling = true;
 
     void Renderer::Init() {
         if (s_VAO == 0) {
@@ -120,6 +131,16 @@ namespace lgt {
             uint32_t initialCount = 0;
             s_GlobalDrawCountBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, sizeof(uint32_t), &initialCount, BufferUsage::DynamicDraw);
         }
+        
+        CORE_INFO("Renderer: Calling RTAOPass::Init");
+        RTAOPass::Init(s_ViewportWidth, s_ViewportHeight);
+        CORE_INFO("Renderer: Calling DDGIPass::Init");
+        DDGIPass::Init(glm::ivec3(8, 4, 8), glm::vec3(-10.0f, -1.0f, -10.0f), glm::vec3(2.5f, 2.0f, 2.5f));
+        CORE_INFO("Renderer: Calling TAAPass::Init");
+        TAAPass::Init(s_ViewportWidth, s_ViewportHeight);
+        CORE_INFO("Renderer: Calling BloomPass::Init");
+        BloomPass::Init(s_ViewportWidth, s_ViewportHeight);
+        CORE_INFO("Renderer: Init Complete");
     }
 
     void Renderer::Shutdown() {
@@ -166,6 +187,10 @@ namespace lgt {
         if (s_GlobalInstanceBuffer) { delete s_GlobalInstanceBuffer; s_GlobalInstanceBuffer = nullptr; }
         if (s_GlobalIndirectDrawBuffer) { delete s_GlobalIndirectDrawBuffer; s_GlobalIndirectDrawBuffer = nullptr; }
         if (s_GlobalDrawCountBuffer) { delete s_GlobalDrawCountBuffer; s_GlobalDrawCountBuffer = nullptr; }
+        RTAOPass::Shutdown();
+        DDGIPass::Shutdown();
+        TAAPass::Shutdown();
+        BloomPass::Shutdown();
     }
 
     void Renderer::OnWindowResize(uint32_t width, uint32_t height) {
@@ -180,11 +205,15 @@ namespace lgt {
         if (s_FinalBuffer) {
             s_FinalBuffer->Resize(width, height);
         }
+        RTAOPass::Resize(width, height);
+        TAAPass::Resize(width, height);
+        BloomPass::Resize(width, height);
         SetViewport(0, 0, width, height);
     }
 
     void Renderer::BeginFrame() {
         s_CommandQueue.Clear();
+        s_FrameIndex++;
     }
 
     void Renderer::EndFrame() {
@@ -245,6 +274,24 @@ namespace lgt {
                     inst.meshletInfo.y = static_cast<uint32_t>(cmd.mesh->GetMeshlets().size()); // meshletCount
                     inst.meshletInfo.z = 0;
                     inst.meshletInfo.w = 0;
+                    
+                    if (cmd.material) {
+                        inst.color = glm::vec4(cmd.material->Albedo, 1.0f);
+                        inst.pbr = glm::vec4(cmd.material->Metallic, cmd.material->Roughness, 1.0f, 0.0f);
+                        
+                        inst.albedoMapHandle = cmd.material->AlbedoMap ? cmd.material->AlbedoMap->GetBindlessHandle() : 0;
+                        inst.normalMapHandle = cmd.material->NormalMap ? cmd.material->NormalMap->GetBindlessHandle() : 0;
+                        inst.pbrMapHandle = cmd.material->MetallicMap ? cmd.material->MetallicMap->GetBindlessHandle() : 0;
+                    } else {
+                        inst.color = glm::vec4(1.0f);
+                        inst.pbr = glm::vec4(0.0f, 0.5f, 1.0f, 0.0f);
+                        
+                        inst.albedoMapHandle = 0;
+                        inst.normalMapHandle = 0;
+                        inst.pbrMapHandle = 0;
+                    }
+                    inst.padding = 0;
+                    
                     instances.push_back(inst);
                 }
             }
@@ -290,6 +337,7 @@ namespace lgt {
                 }
 
                 s_CullShader->SetUInt("u_InstanceCount", (uint32_t)instances.size());
+                s_CullShader->SetInt("u_EnableCulling", s_EnableMeshletCulling ? 1 : 0);
 
                 s_GlobalMeshletBuffer->BindBase(0);
                 s_GlobalInstanceBuffer->BindBase(1);
@@ -299,12 +347,13 @@ namespace lgt {
                 glDispatchCompute((instances.size() + 63) / 64, 1, 1);
                 glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
 
-                // --- DEBUG: Read back draw count ---
+                // Read back GPU indirect draw count for Debug Stats
                 uint32_t culledCount = 0;
                 glGetNamedBufferSubData(s_GlobalDrawCountBuffer->GetRendererID(), 0, sizeof(uint32_t), &culledCount);
-                
-                lgt::DebugStats::Report("Meshlets Passing", std::to_string(culledCount) + " / " + std::to_string(instances.size() * s_GlobalMeshlets.size()));
-                lgt::DebugStats::Report("Total Instances", instances.size());
+
+                lgt::DebugStats::Report("Instance Count", instances.size());
+                lgt::DebugStats::Report("Draw Commands Count", culledCount);
+                lgt::DebugStats::Report("Meshlets Passing Culling", std::to_string(culledCount) + " / " + std::to_string(s_GlobalMeshlets.size()));
             }
         }
 
@@ -374,6 +423,31 @@ namespace lgt {
             s_GBuffer->Unbind();
         }
 
+        // --- 1.5. RTAO + DDGI Passes ---
+        if (s_GBuffer) {
+            if (s_EnableRTAO) {
+                glm::mat4 invVP = glm::inverse(s_ViewProjection);
+                RTAOPass::Execute(
+                    s_GBuffer->GetDepthAttachment()->GetRendererID(),
+                    s_GBuffer->GetColorAttachment(1)->GetRendererID(),
+                    2.0f, 8, s_FrameIndex, invVP);
+            }
+
+            if (s_EnableDDGI) {
+                glm::vec3 sunDir(0, -1, 0), sunColor(1.0f);
+                float sunIntensity = 1.0f;
+                for (const auto& l : s_Lights) {
+                    if (l.Type == 0) {
+                        sunDir = l.Direction;
+                        sunColor = l.Color;
+                        sunIntensity = l.Intensity;
+                        break;
+                    }
+                }
+                DDGIPass::Execute(sunDir, sunColor, sunIntensity, s_FrameIndex);
+            }
+        }
+
         // --- 2. Lighting Pass (to HDR Buffer) ---
         if (s_HDRBuffer && s_LightingShader && s_GBuffer) {
             s_HDRBuffer->Bind();
@@ -408,12 +482,55 @@ namespace lgt {
             s_LightingShader->SetInt("u_gNormal", 1);
             s_LightingShader->SetInt("u_gPBR", 2);
             s_LightingShader->SetInt("u_gDepth", 3);
+
+            if (IBLPass::IsReady()) {
+                glActiveTexture(GL_TEXTURE4);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, IBLPass::GetIrradianceMapID());
+                s_LightingShader->SetInt("u_IrradianceMap", 4);
+
+                glActiveTexture(GL_TEXTURE5);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, IBLPass::GetPrefilterMapID());
+                s_LightingShader->SetInt("u_PrefilterMap", 5);
+
+                glActiveTexture(GL_TEXTURE6);
+                glBindTexture(GL_TEXTURE_2D, IBLPass::GetBrdfLutID());
+                s_LightingShader->SetInt("u_BrdfLut", 6);
+            }
+            
+            glActiveTexture(GL_TEXTURE7);
+            glBindTexture(GL_TEXTURE_2D, RTAOPass::GetAOTextureID());
+            s_LightingShader->SetInt("u_AOTexture", 7);
+            s_LightingShader->SetInt("u_EnableRTAO", s_EnableRTAO ? 1 : 0);
+
+            glActiveTexture(GL_TEXTURE8);
+            glBindTexture(GL_TEXTURE_2D, DDGIPass::GetIrradianceAtlasID());
+            s_LightingShader->SetInt("u_DDGIIrradiance", 8);
+            s_LightingShader->SetInt("u_EnableDDGI", s_EnableDDGI ? 1 : 0);
+
+            s_LightingShader->SetInt3("u_DDGIProbeGridSize", glm::ivec3(DDGIPass::GetGridSize().x, DDGIPass::GetGridSize().y, DDGIPass::GetGridSize().z));
+            s_LightingShader->SetFloat3("u_DDGIProbeOrigin", DDGIPass::GetProbeOrigin());
+            s_LightingShader->SetFloat3("u_DDGIProbeSpacing", DDGIPass::GetProbeSpacing());
             
             glBindVertexArray(s_QuadVAO);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
             s_HDRBuffer->Unbind();
         }
+
+        // --- 2.5 TAA and Bloom ---
+        uint32_t colorTex = s_HDRBuffer->GetColorAttachment(0)->GetRendererID();
+        
+        // TAA Pass
+        TAAPass::Execute(colorTex, 
+                         s_GBuffer->GetColorAttachment(3)->GetRendererID(), 
+                         s_GBuffer->GetDepthAttachment()->GetRendererID(), 
+                         s_FrameIndex);
+        
+        uint32_t resolvedTex = TAAPass::GetResolvedTextureID();
+        
+        // Bloom Pass
+        BloomPass::Execute(resolvedTex, 1.0f, 0.04f); // threshold, strength
+        uint32_t bloomTex = BloomPass::GetBloomTextureID();
 
         // --- 3. Post-Processing Pass (to Final Buffer) ---
         if (s_PostProcessShader && s_HDRBuffer && s_FinalBuffer) {
@@ -424,8 +541,14 @@ namespace lgt {
 
             s_PostProcessShader->Bind();
 
-            s_HDRBuffer->GetColorAttachment(0)->Bind(0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, resolvedTex);
             s_PostProcessShader->SetInt("u_HDRBuffer", 0);
+            
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, bloomTex);
+            s_PostProcessShader->SetInt("u_BloomBuffer", 1);
+            
             s_PostProcessShader->SetFloat("u_Exposure", 1.0f); // Default exposure
 
             glBindVertexArray(s_QuadVAO);
@@ -444,6 +567,26 @@ namespace lgt {
         return nullptr;
     }
 
+    int Renderer::GetFrameIndex() {
+        return s_FrameIndex;
+    }
+
+    glm::vec2 Renderer::GetJitter() {
+        return TAAPass::GetJitter(s_FrameIndex);
+    }
+
+    void Renderer::Present() {
+        if (!s_FinalBuffer) return;
+        uint32_t fboID = s_FinalBuffer->GetRendererID();
+        uint32_t width = s_FinalBuffer->GetWidth();
+        uint32_t height = s_FinalBuffer->GetHeight();
+        
+        glBlitNamedFramebuffer(fboID, 0, 
+                               0, 0, width, height, 
+                               0, 0, width, height, 
+                               GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+
     RenderCommandQueue& Renderer::GetQueue() {
         return s_CommandQueue;
     }
@@ -457,11 +600,35 @@ namespace lgt {
         if (s_GlobalIndexBuffer) delete s_GlobalIndexBuffer;
         if (s_GlobalMeshletBuffer) delete s_GlobalMeshletBuffer;
 
-        s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, vertices.size() * sizeof(float), vertices.data());
-        s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data());
-        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, meshlets.size() * sizeof(Meshlet), meshlets.data());
+        s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, vertices.size() * sizeof(float), vertices.data(), BufferUsage::StaticCopy);
+        s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data(), BufferUsage::StaticCopy);
+        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, meshlets.size() * sizeof(Meshlet), meshlets.data(), BufferUsage::StaticCopy);
 
         BVHPass::Build(vertices, indices);
+    }
+
+    void Renderer::SetRTAOEnabled(bool enabled) {
+        s_EnableRTAO = enabled;
+    }
+
+    bool Renderer::IsRTAOEnabled() {
+        return s_EnableRTAO;
+    }
+
+    void Renderer::SetDDGIEnabled(bool enabled) {
+        s_EnableDDGI = enabled;
+    }
+
+    bool Renderer::IsDDGIEnabled() {
+        return s_EnableDDGI;
+    }
+
+    void Renderer::SetMeshletCullingEnabled(bool enabled) {
+        s_EnableMeshletCulling = enabled;
+    }
+
+    bool Renderer::IsMeshletCullingEnabled() {
+        return s_EnableMeshletCulling;
     }
 
 }

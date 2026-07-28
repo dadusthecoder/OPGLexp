@@ -26,16 +26,23 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] `res/shaders/lighting.glsl` — PBR + IBL + DDGI sampling + RTAO occlusion + emissive (uncommitted, created by agent)
 - [x] IBL shaders: `ibl_equirect.glsl`, `ibl_irradiance.glsl`, `ibl_prefilter.glsl`, `ibl_brdf_lut.glsl` (uncommitted)
 - [x] C++ Pass classes created (uncommitted): `RTAOPass.h/.cpp`, `DDGIPass.h/.cpp`, `IBLPass.h/.cpp`, `BloomPass.h/.cpp`
-
-## Completed Tasks (Part 2)
-1. [x] **TAAPass.h/.cpp** — check if it exists in `src/Renderer/Passes/`, if not create it
-2. [x] **CMakeLists.txt** — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)
-3. [x] **Commit everything uncommitted** — `git add -A && git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"`
-4. [x] **Renderer.cpp integration** — wire all passes into `ExecuteQueue()`
-5. [x] **Build clean** — `cmake --build build --config Debug`
-6. [x] **Commit integration** — `feat(renderer): integrate AAA pipeline into Renderer::ExecuteQueue`
-7. [x] **Merge to master** — `git checkout master && git merge engine && git push origin master`
-8. [x] **Update Docs/Architecture.md and Docs/Decisions.md**
+- [x] TAAPass.h/.cpp — check if it exists in `src/Renderer/Passes/`, if not create it
+- [x] CMakeLists.txt — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)
+- [x] Commit everything uncommitted — `git add -A && git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"`
+- [x] Re-establish Sponza benchmark scene — loaded `res/models/sponza/sponza.obj` in `src/main.cpp` and re-enabled RTAO execution in `Renderer.cpp`
 
 ## Objective Status
-**ACHIEVED**. AAA Renderer Upgrade is complete and merged to master.
+**ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up.
+
+---
+
+# Next Sprint (Upcoming)
+
+## Objective
+**Geometry Pipeline Overhaul & SPOM Integration**
+
+## Planned Tasks
+1. **Static/Dynamic Geometry Split**: Overhaul `Renderer::ExecuteQueue` to stop clearing and rebuilding meshlet buffers every frame. Introduce a dual-pipeline for static vs dynamic entities.
+2. **Dynamic Instance Buffer**: Implement a dynamic buffer for moving geometry to be culled and drawn separately from the static background.
+3. **Silhouette Parallax Occlusion Mapping (SPOM)**: Introduce advanced Parallax Occlusion Mapping into the material and G-Buffer system to "fake" dense geometric depth (Crimson Desert style) for brick and stone surfaces without increasing polygon count.
+4. **Height Map Support**: Update bindless texture loading to support displacement/height maps required for SPOM.

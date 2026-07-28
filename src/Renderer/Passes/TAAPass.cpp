@@ -107,8 +107,8 @@ namespace lgt {
         glBindTexture(GL_TEXTURE_2D, depthID);
         s_TAAShader->SetInt("u_Depth", 3);
 
-        glBindVertexArray(s_QuadVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(s_QuadVAO); // Can be empty VAO
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         s_HistoryFBOs[nextHistory]->Unbind();
         s_CurrentHistory = nextHistory;

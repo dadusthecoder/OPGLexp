@@ -19,6 +19,7 @@ layout(location = 0) out vec4 o_Color;
 in vec2 v_TexCoord;
 
 uniform sampler2D u_HDRBuffer;
+uniform sampler2D u_BloomBuffer;
 uniform float u_Exposure = 1.0;
 
 // ACES Tonemapping curve
@@ -33,6 +34,10 @@ vec3 ACESFilm(vec3 x) {
 
 void main() {
     vec3 hdrColor = texture(u_HDRBuffer, v_TexCoord).rgb;
+    vec3 bloomColor = texture(u_BloomBuffer, v_TexCoord).rgb;
+    
+    // Add bloom
+    hdrColor += bloomColor;
     
     // Exposure adjustment
     hdrColor *= u_Exposure;

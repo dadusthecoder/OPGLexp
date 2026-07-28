@@ -65,13 +65,11 @@ namespace lgt {
         glDisable(GL_BLEND);
 
         s_DownsampleShader->Bind();
-        s_DownsampleShader->SetInt("u_SrcTexture", 0);
+        s_DownsampleShader->SetInt("u_Source", 0);
         
-        // First downsample (with thresholding logic if added to shader, though might be implicit)
-        // We'll just pass threshold just in case the shader supports it.
-        s_DownsampleShader->SetFloat("u_Threshold", threshold);
-
         uint32_t srcTex = hdrTextureID;
+        uint32_t currentWidth = s_Width;
+        uint32_t currentHeight = s_Height;
 
         for (int i = 0; i < NUM_MIPS; i++) {
             s_MipFBOs[i]->Bind();
@@ -80,13 +78,14 @@ namespace lgt {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, srcTex);
             
-            // On first iteration, mipLevel = 0 for the shader to know
-            s_DownsampleShader->SetInt("u_MipLevel", i);
+            s_DownsampleShader->SetFloat2("u_SrcTexelSize", glm::vec2(1.0f / (float)currentWidth, 1.0f / (float)currentHeight));
             
             glBindVertexArray(s_QuadVAO);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
 
             srcTex = s_MipFBOs[i]->GetColorAttachment(0)->GetRendererID();
+            currentWidth = s_MipFBOs[i]->GetWidth();
+            currentHeight = s_MipFBOs[i]->GetHeight();
         }
 
         // Upsample
@@ -95,8 +94,8 @@ namespace lgt {
         glBlendEquation(GL_FUNC_ADD);
 
         s_UpsampleShader->Bind();
-        s_UpsampleShader->SetInt("u_SrcTexture", 0);
-        s_UpsampleShader->SetFloat("u_FilterRadius", 0.005f); // default
+        s_UpsampleShader->SetInt("u_Source", 0);
+        s_UpsampleShader->SetFloat("u_Strength", strength);
 
         for (int i = NUM_MIPS - 1; i > 0; i--) {
             s_MipFBOs[i - 1]->Bind();
@@ -104,9 +103,11 @@ namespace lgt {
 
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, s_MipFBOs[i]->GetColorAttachment(0)->GetRendererID());
+            
+            s_UpsampleShader->SetFloat2("u_FilterRadius", glm::vec2(0.005f, 0.005f));
 
             glBindVertexArray(s_QuadVAO);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
         }
 
         glDisable(GL_BLEND);
