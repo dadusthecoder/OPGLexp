@@ -12,42 +12,38 @@ namespace lgt {
 
         m_Shader->Bind();
 
-        m_Shader->SetFloat3("u_Material.Albedo", Albedo);
-        m_Shader->SetFloat("u_Material.Metallic", Metallic);
-        m_Shader->SetFloat("u_Material.Roughness", Roughness);
+        m_Shader->SetFloat3("u_Albedo", Albedo);
+        m_Shader->SetFloat("u_Metallic", Metallic);
+        m_Shader->SetFloat("u_Roughness", Roughness);
+        m_Shader->SetFloat("u_EmissiveStrength", 0.0f); // Default to no emission for now
 
         // Bind textures if they exist, otherwise bind default textures/colors
-        // For Milestone 3 we just set booleans to tell shader if we have maps
         if (AlbedoMap) {
             AlbedoMap->Bind(0);
-            m_Shader->SetInt("u_AlbedoMap", 0);
-            m_Shader->SetInt("u_UseAlbedoMap", 1);
+            m_Shader->SetInt("u_AlbedoTex", 0);
+            m_Shader->SetInt("u_HasAlbedoTex", 1);
         } else {
-            m_Shader->SetInt("u_UseAlbedoMap", 0);
+            m_Shader->SetInt("u_HasAlbedoTex", 0);
         }
 
         if (NormalMap) {
             NormalMap->Bind(1);
-            m_Shader->SetInt("u_NormalMap", 1);
-            m_Shader->SetInt("u_UseNormalMap", 1);
+            m_Shader->SetInt("u_NormalTex", 1);
+            m_Shader->SetInt("u_HasNormalTex", 1);
         } else {
-            m_Shader->SetInt("u_UseNormalMap", 0);
+            m_Shader->SetInt("u_HasNormalTex", 0);
         }
         
-        if (MetallicMap) {
-            MetallicMap->Bind(2);
-            m_Shader->SetInt("u_MetallicMap", 2);
-            m_Shader->SetInt("u_UseMetallicMap", 1);
+        // geometry.glsl expects a combined metallic/roughness texture, but we have separate. 
+        // For now, if either exist, we just pass one of them to slot 2 and hope they are packed, 
+        // or just rely on scalar metallic/roughness if they don't exist.
+        if (MetallicMap || RoughnessMap) {
+            if (MetallicMap) MetallicMap->Bind(2);
+            else if (RoughnessMap) RoughnessMap->Bind(2);
+            m_Shader->SetInt("u_MetallicRoughnessTex", 2);
+            m_Shader->SetInt("u_HasMetallicRoughnessTex", 1);
         } else {
-            m_Shader->SetInt("u_UseMetallicMap", 0);
-        }
-
-        if (RoughnessMap) {
-            RoughnessMap->Bind(3);
-            m_Shader->SetInt("u_RoughnessMap", 3);
-            m_Shader->SetInt("u_UseRoughnessMap", 1);
-        } else {
-            m_Shader->SetInt("u_UseRoughnessMap", 0);
+            m_Shader->SetInt("u_HasMetallicRoughnessTex", 0);
         }
     }
 
