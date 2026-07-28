@@ -21,6 +21,33 @@ layout(location = 0) out vec4 o_Color;
 
 in vec2 v_TexCoord;
 
+struct LightData {
+    vec4 Position;
+    vec4 Color;
+    int Type;
+    float Intensity;
+    float Radius;
+    float Falloff;
+    vec4 Direction;
+};
+
+layout(std430, binding = 1) readonly buffer LightBuffer {
+    LightData b_Lights[];
+};
+
+layout(std430, binding = 2) readonly buffer LightGridBuffer {
+    uint b_LightGrid[];
+};
+
+layout(std430, binding = 3) readonly buffer LightIndexBuffer {
+    uint b_LightIndices[];
+};
+
+uniform mat4 u_ViewMatrix;
+uniform ivec3 u_GridSize;
+uniform float u_ZNear;
+uniform float u_ZFar;
+
 layout(binding = 0) uniform sampler2D u_gAlbedo;
 layout(binding = 1) uniform sampler2D u_gNormal;
 layout(binding = 2) uniform sampler2D u_gPBR;
@@ -33,18 +60,7 @@ layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
 layout(binding = 9) uniform sampler2D u_ShadowMask;
 
-
-struct Light {
-    vec3 Position;
-    int  Type;       // 0=directional, 1=point
-    vec3 Direction;
-    float Radius;
-    vec3 Color;
-    float Intensity;
-};
-
-uniform Light u_Lights[16];
-uniform int u_LightCount;
+// SSBO lights used instead
 
 uniform vec3 u_CameraPos;
 uniform mat4 u_InvViewProjection;
@@ -123,29 +139,52 @@ void main() {
 
     vec3 Lo = vec3(0.0);
     
-    for (int i = 0; i < u_LightCount; ++i) {
+    // Determine the cluster index for the current fragment
+    vec4 viewPosHomogeneous = u_ViewMatrix * vec4(worldPos, 1.0);
+    vec3 viewPos = viewPosHomogeneous.xyz / viewPosHomogeneous.w;
+
+    uint zTile = 0;
+    if (-viewPos.z >= u_ZNear) {
+        zTile = uint(max(0.0, log2(-viewPos.z / u_ZNear) * float(u_GridSize.z) / log2(u_ZFar / u_ZNear)));
+        zTile = min(zTile, u_GridSize.z - 1);
+    }
+    
+    uint xTile = uint(gl_FragCoord.x * float(u_GridSize.x) / textureSize(u_gAlbedo, 0).x);
+    uint yTile = uint(gl_FragCoord.y * float(u_GridSize.y) / textureSize(u_gAlbedo, 0).y);
+    xTile = min(xTile, u_GridSize.x - 1);
+    yTile = min(yTile, u_GridSize.y - 1);
+
+    uint clusterIndex = xTile + yTile * u_GridSize.x + zTile * (u_GridSize.x * u_GridSize.y);
+    
+    uint lightOffset = b_LightGrid[clusterIndex * 2 + 0];
+    uint lightCount  = b_LightGrid[clusterIndex * 2 + 1];
+
+    for (uint i = 0; i < lightCount; ++i) {
+        uint lightIdx = b_LightIndices[lightOffset + i];
+        LightData light = b_Lights[lightIdx];
+        
         vec3 L;
         float attenuation = 1.0;
         
-        if (u_Lights[i].Type == 0) {
-            L = normalize(-u_Lights[i].Direction);
+        if (light.Type == 0) {
+            L = normalize(-light.Direction.xyz);
         } else {
-            L = u_Lights[i].Position - worldPos;
+            L = light.Position.xyz - worldPos;
             float dist = length(L);
             L = normalize(L);
             
-            float d = dist / max(u_Lights[i].Radius, 0.001);
+            float d = dist / max(light.Radius, 0.001);
             float d2 = d * d;
             float d4 = d2 * d2;
             float falloff = clamp(1.0 - d4, 0.0, 1.0);
             attenuation = (falloff * falloff) / (dist * dist + 1.0);
         }
         
-        vec3 lightColor = u_Lights[i].Color * u_Lights[i].Intensity * attenuation;
+        vec3 lightColor = light.Color.xyz * light.Intensity * attenuation;
         
         // Apply RT Shadows for directional light (Type 0)
         // Assumes RT shadow mask is for the main directional light
-        if (u_Lights[i].Type == 0 && u_EnableRTShadows != 0) {
+        if (light.Type == 0 && u_EnableRTShadows != 0) {
             float shadow = texture(u_ShadowMask, v_TexCoord).r;
             lightColor *= shadow;
         }

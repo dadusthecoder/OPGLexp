@@ -1,0 +1,126 @@
+#type compute
+#version 460 core
+
+layout(local_size_x = 16, local_size_y = 9, local_size_z = 4) in;
+
+struct LightData {
+    vec4 Position;
+    vec4 Color;
+    int Type; // 0=Sun, 1=Point, 2=Spot
+    float Intensity;
+    float Radius;
+    float Falloff;
+    vec4 Direction;
+};
+
+struct ClusterAABB {
+    vec4 minPoint;
+    vec4 maxPoint;
+};
+
+// SSBOs
+layout(std430, binding = 0) readonly buffer ClusterAABBBuffer {
+    ClusterAABB clusters[];
+};
+
+layout(std430, binding = 1) readonly buffer LightBuffer {
+    LightData lights[];
+};
+
+layout(std430, binding = 2) writeonly buffer LightGridBuffer {
+    uint lightGrid[]; // x=offset, y=count
+};
+
+layout(std430, binding = 3) writeonly buffer LightIndexBuffer {
+    uint lightIndices[];
+};
+
+layout(std430, binding = 4) buffer GlobalIndexCountBuffer {
+    uint globalIndexCount;
+};
+
+uniform mat4 u_ViewMatrix;
+uniform int u_LightCount;
+uniform ivec3 u_GridSize;
+
+#define MAX_LIGHTS_PER_CLUSTER 1024
+
+shared uint visibleLightCount;
+shared uint visibleLightIndices[MAX_LIGHTS_PER_CLUSTER];
+shared uint clusterStartIndex;
+
+bool TestSphereAABB(vec3 center, float radius, vec3 aabbMin, vec3 aabbMax) {
+    vec3 closestPoint = clamp(center, aabbMin, aabbMax);
+    vec3 diff = center - closestPoint;
+    return dot(diff, diff) <= (radius * radius);
+}
+
+void main() {
+    uint clusterIndex = gl_LocalInvocationID.x +
+                        gl_LocalInvocationID.y * gl_WorkGroupSize.x +
+                        gl_LocalInvocationID.z * (gl_WorkGroupSize.x * gl_WorkGroupSize.y);
+    
+    uint globalClusterIndex = gl_GlobalInvocationID.x +
+                              gl_GlobalInvocationID.y * u_GridSize.x +
+                              gl_GlobalInvocationID.z * (u_GridSize.x * u_GridSize.y);
+
+    if (clusterIndex == 0) {
+        visibleLightCount = 0;
+    }
+    
+    barrier();
+
+    ClusterAABB aabb = clusters[globalClusterIndex];
+    vec3 minP = aabb.minPoint.xyz;
+    vec3 maxP = aabb.maxPoint.xyz;
+
+    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+    uint passCount = (uint(u_LightCount) + threadCount - 1) / threadCount;
+
+    for (uint i = 0; i < passCount; ++i) {
+        uint lightIdx = i * threadCount + clusterIndex;
+        if (lightIdx < uint(u_LightCount)) {
+            LightData light = lights[lightIdx];
+            
+            // Directional lights are added to all clusters
+            bool visible = false;
+            if (light.Type == 0) {
+                visible = true;
+            } else {
+                // Transform light position to view space
+                vec3 viewPos = (u_ViewMatrix * vec4(light.Position.xyz, 1.0)).xyz;
+                visible = TestSphereAABB(viewPos, light.Radius, minP, maxP);
+            }
+
+            if (visible) {
+                uint offset = atomicAdd(visibleLightCount, 1);
+                if (offset < MAX_LIGHTS_PER_CLUSTER) {
+                    visibleLightIndices[offset] = lightIdx;
+                }
+            }
+        }
+    }
+
+    barrier();
+
+    if (clusterIndex == 0) {
+        uint count = min(visibleLightCount, uint(MAX_LIGHTS_PER_CLUSTER));
+        clusterStartIndex = atomicAdd(globalIndexCount, count);
+        
+        // lightGrid[globalClusterIndex * 2 + 0] = offset
+        // lightGrid[globalClusterIndex * 2 + 1] = count
+        lightGrid[globalClusterIndex * 2 + 0] = clusterStartIndex;
+        lightGrid[globalClusterIndex * 2 + 1] = count;
+    }
+    
+    barrier();
+
+    uint count = min(visibleLightCount, uint(MAX_LIGHTS_PER_CLUSTER));
+    uint passCountIndices = (count + threadCount - 1) / threadCount;
+    for (uint i = 0; i < passCountIndices; ++i) {
+        uint idx = i * threadCount + clusterIndex;
+        if (idx < count) {
+            lightIndices[clusterStartIndex + idx] = visibleLightIndices[idx];
+        }
+    }
+}

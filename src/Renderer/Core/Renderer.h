@@ -14,7 +14,7 @@ namespace lgt {
         static void BeginFrame();
         static void EndFrame();
 
-        static void BeginScene(const glm::mat4& viewProjection, const glm::vec3& cameraPosition);
+        static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition);
 
         static void OnWindowResize(uint32_t width, uint32_t height);
         static void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height);

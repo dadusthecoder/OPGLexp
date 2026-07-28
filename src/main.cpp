@@ -54,8 +54,8 @@ void DEBUG_CALLBACK_APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned 
         case GL_DEBUG_TYPE_OTHER:               typeStr = "Other"; break;
     }
     switch (severity) {
-        case GL_DEBUG_SEVERITY_HIGH:         CORE_CRITICAL("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); break;
-        case GL_DEBUG_SEVERITY_MEDIUM:       CORE_ERROR("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); break;
+        case GL_DEBUG_SEVERITY_HIGH:         CORE_CRITICAL("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); __debugbreak(); break;
+        case GL_DEBUG_SEVERITY_MEDIUM:       CORE_ERROR("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); __debugbreak(); break;
         case GL_DEBUG_SEVERITY_LOW:          CORE_WARN("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); break;
         case GL_DEBUG_SEVERITY_NOTIFICATION: CORE_INFO("OpenGL ({}) [{}]: {}", sourceStr, typeStr, message); break;
     }

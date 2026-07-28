@@ -21,8 +21,9 @@ void main() {
     ivec2 size = imageSize(o_ShadowMask);
     if (pixelCoord.x >= size.x || pixelCoord.y >= size.y) return;
 
-    vec2 uv = (vec2(pixelCoord) + 0.5) / vec2(size);
-    float depth = texture(u_gDepth, uv).r;
+    // Use explicit texelFetch for stability (mapping half-res coord to full-res GBuffer)
+    ivec2 fullResCoord = pixelCoord * 2;
+    float depth = texelFetch(u_gDepth, fullResCoord, 0).r;
     
     // Background (skybox) is not shadowed
     if (depth == 1.0) {
@@ -30,8 +31,11 @@ void main() {
         return;
     }
 
-    vec3 worldPos = ReconstructWorldPos(uv, depth, u_InvViewProjection);
-    vec2 normalData = texture(u_gNormal, uv).rg;
+    ivec2 fullResSize = size * 2;
+    vec2 fullResUV = (vec2(fullResCoord) + 0.5) / vec2(fullResSize);
+    vec3 worldPos = ReconstructWorldPos(fullResUV, depth, u_InvViewProjection);
+    
+    vec2 normalData = texelFetch(u_gNormal, fullResCoord, 0).rg;
     vec3 normal = OctDecode(normalData);
 
     // Light direction (pointing towards light)

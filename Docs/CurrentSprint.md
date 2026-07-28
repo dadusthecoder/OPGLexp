@@ -33,6 +33,7 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] Added `Renderer Settings` ImGui panel to toggle post-processing and RT effects dynamically.
 - [x] Fixed Bloom blurring issue by adding threshold logic.
 - [x] Implemented Ray-Traced Shadows (`RTShadowPass`) via Compute Shader BVH `TraceAnyHit` + bilateral `shadow_blur.comp`.
+- [x] Implemented Compute-Based Clustered Deferred Light Culling (`LightCullingPass`), optimized SSBO structures, fixed GL_INVALID_OPERATION type mismatches.
 
 ## Objective Status
 **ACHIEVED**. AAA Renderer Upgrade complete and benchmark scene set up with Ray-Traced Shadows and dynamic Editor settings.

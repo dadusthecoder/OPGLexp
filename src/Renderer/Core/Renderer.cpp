@@ -14,6 +14,7 @@
 #include "../Passes/TAAPass.h"
 #include "../Passes/BloomPass.h"
 #include "../Passes/RTShadowPass.h"
+#include "../Passes/LightCullingPass.h"
 
 namespace lgt {
 
@@ -33,6 +34,7 @@ namespace lgt {
     static Framebuffer* s_HDRBuffer = nullptr;
     static Framebuffer* s_FinalBuffer = nullptr;
     static std::vector<Renderer::LightData> s_Lights;
+    static Buffer* s_LightDataBuffer = nullptr;
 
     // GPU-Driven Global Buffers
     static Buffer* s_GlobalVertexBuffer = nullptr;
@@ -152,6 +154,12 @@ namespace lgt {
         CORE_INFO("Renderer: Calling RTShadowPass::Init");
         RTShadowPass::Init(s_ViewportWidth, s_ViewportHeight);
 
+        CORE_INFO("Renderer: Calling LightCullingPass::Init");
+        LightCullingPass::Init(s_ViewportWidth, s_ViewportHeight);
+
+        // Setup light SSBO
+        s_LightDataBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, 1000 * sizeof(LightData) + 16, nullptr, BufferUsage::DynamicDraw);
+
         CORE_INFO("Renderer: Init Complete");
     }
 
@@ -204,6 +212,7 @@ namespace lgt {
         TAAPass::Shutdown();
         BloomPass::Shutdown();
         RTShadowPass::Shutdown();
+        LightCullingPass::Shutdown();
 
         s_GlobalVertices.clear();
     }
@@ -224,6 +233,7 @@ namespace lgt {
         TAAPass::Resize(width, height);
         BloomPass::Resize(width, height);
         RTShadowPass::Resize(width, height);
+        LightCullingPass::Resize(width, height);
         SetViewport(0, 0, width, height);
     }
 
@@ -239,10 +249,15 @@ namespace lgt {
 
     static glm::vec3 s_CameraPosition = glm::vec3(0.0f);
 
-    void Renderer::BeginScene(const glm::mat4& viewProjection, const glm::vec3& cameraPosition) {
+    glm::mat4 s_ViewMatrix;
+    glm::mat4 s_ProjMatrix;
+
+    void Renderer::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition) {
         glm::vec2 jitter = GetJitter();
         glm::mat4 jitterMat = glm::translate(glm::mat4(1.0f), glm::vec3(jitter.x, jitter.y, 0.0f));
-        s_ViewProjection = jitterMat * viewProjection;
+        s_ViewMatrix = viewMatrix;
+        s_ProjMatrix = projMatrix;
+        s_ViewProjection = jitterMat * projMatrix * viewMatrix;
         s_CameraPosition = cameraPosition;
     }
 
@@ -481,6 +496,36 @@ namespace lgt {
             }
         }
 
+        // --- 1.8. Clustered Light Culling ---
+        // Upload lights to SSBO
+        if (s_LightDataBuffer && !s_Lights.empty()) {
+            // Need to match std430 layout of LightData
+            struct alignas(16) Std430Light {
+                glm::vec4 Position;
+                glm::vec4 Color;
+                int Type;
+                float Intensity;
+                float Radius;
+                float Falloff;
+                glm::vec4 Direction;
+            };
+
+            std::vector<Std430Light> stdLights(s_Lights.size());
+            for (size_t i = 0; i < s_Lights.size(); i++) {
+                stdLights[i].Position = glm::vec4(s_Lights[i].Position, 1.0f);
+                stdLights[i].Color = glm::vec4(s_Lights[i].Color, 1.0f);
+                stdLights[i].Type = s_Lights[i].Type;
+                stdLights[i].Intensity = s_Lights[i].Intensity;
+                stdLights[i].Radius = s_Lights[i].Radius;
+                stdLights[i].Falloff = 1.0f;
+                stdLights[i].Direction = glm::vec4(s_Lights[i].Direction, 0.0f);
+            }
+            s_LightDataBuffer->SetData(stdLights.data(), stdLights.size() * sizeof(Std430Light));
+            s_LightDataBuffer->BindBase(1); // Binding 1 for lights
+
+            LightCullingPass::Execute(s_ViewMatrix, s_ProjMatrix, glm::inverse(s_ProjMatrix), (uint32_t)s_Lights.size());
+        }
+
         // --- 2. Lighting Pass (to HDR Buffer) ---
         if (s_HDRBuffer && s_LightingShader && s_GBuffer) {
             s_HDRBuffer->Bind();
@@ -492,18 +537,10 @@ namespace lgt {
             
             s_LightingShader->SetMat4("u_InvViewProjection", glm::inverse(s_ViewProjection));
             s_LightingShader->SetFloat3("u_CameraPos", s_CameraPosition);
-
-            // Set Lights
-            s_LightingShader->SetInt("u_LightCount", (int)s_Lights.size());
-            for (size_t i = 0; i < s_Lights.size(); i++) {
-                std::string prefix = "u_Lights[" + std::to_string(i) + "].";
-                s_LightingShader->SetFloat3(prefix + "Position", s_Lights[i].Position);
-                s_LightingShader->SetFloat3(prefix + "Direction", s_Lights[i].Direction);
-                s_LightingShader->SetFloat3(prefix + "Color", s_Lights[i].Color);
-                s_LightingShader->SetFloat(prefix + "Intensity", s_Lights[i].Intensity);
-                s_LightingShader->SetInt(prefix + "Type", s_Lights[i].Type);
-                s_LightingShader->SetFloat(prefix + "Radius", s_Lights[i].Radius);
-            }
+            s_LightingShader->SetMat4("u_ViewMatrix", s_ViewMatrix);
+            s_LightingShader->SetInt3("u_GridSize", LightCullingPass::GetGridSize());
+            s_LightingShader->SetFloat("u_ZNear", 0.1f);
+            s_LightingShader->SetFloat("u_ZFar", 1000.0f);
 
             // Bind G-Buffer textures
             s_GBuffer->GetColorAttachment(0)->Bind(0); // AlbedoSpec

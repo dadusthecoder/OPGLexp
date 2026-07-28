@@ -61,7 +61,8 @@ namespace lgt {
     }
 
     void Scene::OnRender() {
-        glm::mat4 cameraViewProj = glm::mat4(1.0f);
+        glm::mat4 cameraView = glm::mat4(1.0f);
+        glm::mat4 cameraProj = glm::mat4(1.0f);
         glm::vec3 cameraPos = glm::vec3(0.0f);
         
         // Find main camera
@@ -70,14 +71,14 @@ namespace lgt {
             auto [cameraComp, transform] = cameraGroup.get<CameraComponent, TransformComponent>(entity);
             if (cameraComp.primary) {
                 // View is inverse of transform
-                glm::mat4 view = glm::inverse(transform.GlobalTransform);
-                cameraViewProj = cameraComp.camera.GetProjection() * view;
+                cameraView = glm::inverse(transform.GlobalTransform);
+                cameraProj = cameraComp.camera.GetProjection();
                 cameraPos = transform.GlobalTransform[3]; // The translation part
                 break;
             }
         }
         
-        Renderer::BeginScene(cameraViewProj, cameraPos);
+        Renderer::BeginScene(cameraView, cameraProj, cameraPos);
         
         // Submit lights
         auto lightView = m_Registry.view<TransformComponent, LightComponent>();

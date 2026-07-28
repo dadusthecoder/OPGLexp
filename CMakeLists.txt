@@ -38,6 +38,7 @@ set(SOURCES
     src/Renderer/Passes/BloomPass.cpp
     src/Renderer/Passes/TAAPass.cpp
     src/Renderer/Passes/RTShadowPass.cpp
+    src/Renderer/Passes/LightCullingPass.cpp
     # Renderer Backend
     src/Renderer/Backend/OpenGLShader.cpp
     src/Renderer/Backend/OpenGLBuffer.cpp
