@@ -111,7 +111,7 @@ namespace lgt {
 
     static void ProcessNode(aiNode* node, const aiScene* aiscene, Scene* scene, Entity parentEntity, 
                             Shader* defaultShader, const std::string& directory,
-                            std::vector<float>& globalVertices, std::vector<uint32_t>& globalIndices, std::vector<Meshlet>& globalMeshlets, glm::mat4 accumulatedTransform) {
+                            std::vector<float>& globalVertices, std::vector<uint32_t>& globalIndices, std::vector<Meshlet>& globalMeshlets) {
         
         glm::mat4 m;
         m[0][0] = node->mTransformation.a1; m[1][0] = node->mTransformation.a2; m[2][0] = node->mTransformation.a3; m[3][0] = node->mTransformation.a4;
@@ -119,42 +119,54 @@ namespace lgt {
         m[0][2] = node->mTransformation.c1; m[1][2] = node->mTransformation.c2; m[2][2] = node->mTransformation.c3; m[3][2] = node->mTransformation.c4;
         m[0][3] = node->mTransformation.d1; m[1][3] = node->mTransformation.d2; m[2][3] = node->mTransformation.d3; m[3][3] = node->mTransformation.d4;
         
-        glm::mat4 nodeTransform = accumulatedTransform * m;
+        glm::vec3 scale;
+        glm::quat rotation;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 perspective;
+        glm::decompose(m, scale, rotation, translation, skew, perspective);
+        
+        std::string nodeName = node->mName.C_Str();
+        if (nodeName.empty()) nodeName = "Node";
+        Entity nodeEntity = scene->CreateEntity(nodeName);
+        
+        if (parentEntity) {
+            nodeEntity.SetParent(parentEntity);
+        }
+        
+        auto& transform = nodeEntity.GetComponent<TransformComponent>();
+        transform.Translation = translation;
+        transform.Rotation = glm::eulerAngles(rotation);
+        transform.Scale = scale;
+
         for (unsigned int i = 0; i < node->mNumMeshes; i++) {
             aiMesh* aimesh = aiscene->mMeshes[node->mMeshes[i]];
             
-            // Create entity
-            std::string nodeName = node->mName.C_Str();
-            if (nodeName.empty()) nodeName = "Mesh";
-            Entity meshEntity = scene->CreateEntity(nodeName);
+            Entity meshEntity = scene->CreateEntity(nodeName + "_Mesh");
+            meshEntity.SetParent(nodeEntity);
             
-            // Keep entity transform at identity because we bake it into the static global buffer
-            auto& transform = meshEntity.GetComponent<TransformComponent>();
-            transform.Translation = glm::vec3(0.0f);
-            transform.Rotation = glm::vec3(0.0f);
-            transform.Scale = glm::vec3(1.0f);
+            // Keep mesh entity local transform at identity
+            auto& meshTransform = meshEntity.GetComponent<TransformComponent>();
+            meshTransform.Translation = glm::vec3(0.0f);
+            meshTransform.Rotation = glm::vec3(0.0f);
+            meshTransform.Scale = glm::vec3(1.0f);
 
             // Build interleaved vertex data: Position(3) + Normal(3) + TexCoord(2) = 8 floats
             std::vector<float> vertices;
             vertices.reserve(aimesh->mNumVertices * 8);
             std::vector<uint32_t> indices;
 
-            glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(nodeTransform)));
-
             for (unsigned int j = 0; j < aimesh->mNumVertices; j++) {
-                // Position (Baked)
-                glm::vec4 pos = nodeTransform * glm::vec4(aimesh->mVertices[j].x, aimesh->mVertices[j].y, aimesh->mVertices[j].z, 1.0f);
-                vertices.push_back(pos.x);
-                vertices.push_back(pos.y);
-                vertices.push_back(pos.z);
+                // Position (Local)
+                vertices.push_back(aimesh->mVertices[j].x);
+                vertices.push_back(aimesh->mVertices[j].y);
+                vertices.push_back(aimesh->mVertices[j].z);
 
-                // Normal (Baked)
+                // Normal (Local)
                 if (aimesh->HasNormals()) {
-                    glm::vec3 norm = normalMatrix * glm::vec3(aimesh->mNormals[j].x, aimesh->mNormals[j].y, aimesh->mNormals[j].z);
-                    norm = glm::normalize(norm);
-                    vertices.push_back(norm.x);
-                    vertices.push_back(norm.y);
-                    vertices.push_back(norm.z);
+                    vertices.push_back(aimesh->mNormals[j].x);
+                    vertices.push_back(aimesh->mNormals[j].y);
+                    vertices.push_back(aimesh->mNormals[j].z);
                 } else {
                     vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
                 }
@@ -236,7 +248,7 @@ namespace lgt {
 
         // Process children recursively
         for (unsigned int i = 0; i < node->mNumChildren; i++) {
-            ProcessNode(node->mChildren[i], aiscene, scene, parentEntity, defaultShader, directory, globalVertices, globalIndices, globalMeshlets, nodeTransform);
+            ProcessNode(node->mChildren[i], aiscene, scene, nodeEntity, defaultShader, directory, globalVertices, globalIndices, globalMeshlets);
         }
     }
 
@@ -264,17 +276,16 @@ namespace lgt {
             directory = ".";
 
         Entity rootEntity = scene->CreateEntity(path);
+        if (path.find("sponza") != std::string::npos) {
+            auto& rootTransform = rootEntity.GetComponent<TransformComponent>();
+            rootTransform.Scale = glm::vec3(5.0f); // Sponza is too large
+        }
         
         std::vector<float> globalVertices;
         std::vector<uint32_t> globalIndices;
         std::vector<Meshlet> globalMeshlets;
         
-        glm::mat4 baseTransform = glm::mat4(1.0f);
-        if (path.find("sponza") != std::string::npos) {
-            baseTransform = glm::scale(glm::mat4(1.0f), glm::vec3(0.01f)); // Sponza is too large
-        }
-        
-        ProcessNode(aiscene->mRootNode, aiscene, scene, rootEntity, defaultShader, directory, globalVertices, globalIndices, globalMeshlets, baseTransform);
+        ProcessNode(aiscene->mRootNode, aiscene, scene, rootEntity, defaultShader, directory, globalVertices, globalIndices, globalMeshlets);
         
         // Upload the accumulated geometry to the renderer
         Renderer::UploadGlobalGeometry(globalVertices, globalIndices, globalMeshlets);
