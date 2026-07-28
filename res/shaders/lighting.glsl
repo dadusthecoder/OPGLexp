@@ -74,6 +74,7 @@ uniform vec3 u_DDGIProbeSpacing;
 uniform int u_EnableRTAO;
 uniform int u_EnableDDGI;
 uniform int u_EnableRTShadows;
+uniform int u_EnableIBL;
 
 vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
     vec3 gridPos = (worldPos - u_DDGIProbeOrigin) / u_DDGIProbeSpacing;
@@ -246,7 +247,7 @@ void main() {
     vec3 irradiance = vec3(0.0);
     if (u_EnableDDGI != 0 && u_DDGIProbeGridSize.x > 0) {
         irradiance = SampleDDGI(worldPos, N);
-    } else if (textureSize(u_IrradianceMap, 0).x > 1) {
+    } else if (u_EnableIBL != 0 && textureSize(u_IrradianceMap, 0).x > 1) {
         irradiance = texture(u_IrradianceMap, N).rgb;
     }
 
@@ -265,7 +266,7 @@ void main() {
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     const float MAX_REFLECTION_LOD = 4.0;
     vec3 prefilteredColor = vec3(0.0);
-    if (textureSize(u_PrefilterMap, 0).x > 1) {
+    if (u_EnableIBL != 0 && textureSize(u_PrefilterMap, 0).x > 1) {
         prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     }
     

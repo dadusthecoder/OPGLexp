@@ -54,6 +54,7 @@ namespace lgt {
     static int s_FrameIndex = 0;
     static bool s_EnableRTAO = false;
     static bool s_EnableDDGI = true;
+    static bool s_EnableIBL = true;
     static bool s_EnableMeshletCulling = true;
     static bool s_EnableTAA = true;
     static float s_TAABlendFactor = 0.1f;
@@ -615,6 +616,7 @@ namespace lgt {
                 glBindTexture(GL_TEXTURE_2D, IBLPass::GetBrdfLutID());
                 s_LightingShader->SetInt("u_BrdfLut", 6);
             }
+            s_LightingShader->SetInt("u_EnableIBL", s_EnableIBL ? 1 : 0);
             
             glActiveTexture(GL_TEXTURE7);
             glBindTexture(GL_TEXTURE_2D, RTAOPass::GetAOTextureID());
@@ -758,6 +760,14 @@ namespace lgt {
 
     bool Renderer::IsDDGIEnabled() {
         return s_EnableDDGI;
+    }
+
+    void Renderer::SetIBLEnabled(bool enabled) {
+        s_EnableIBL = enabled;
+    }
+
+    bool Renderer::IsIBLEnabled() {
+        return s_EnableIBL;
     }
 
     void Renderer::SetMeshletCullingEnabled(bool enabled) {

@@ -46,6 +46,9 @@ namespace lgt {
         static void SetDDGIEnabled(bool enabled);
         static bool IsDDGIEnabled();
 
+        static void SetIBLEnabled(bool enabled);
+        static bool IsIBLEnabled();
+
         static void SetMeshletCullingEnabled(bool enabled);
         static bool IsMeshletCullingEnabled();
 

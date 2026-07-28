@@ -85,6 +85,11 @@ namespace lgt {
                 Renderer::SetDDGIEnabled(ddgiEnabled);
             }
 
+            bool iblEnabled = Renderer::IsIBLEnabled();
+            if (ImGui::Checkbox("Enable IBL", &iblEnabled)) {
+                Renderer::SetIBLEnabled(iblEnabled);
+            }
+
             bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
             if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
                 Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
