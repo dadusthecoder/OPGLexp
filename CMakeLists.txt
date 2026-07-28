@@ -22,6 +22,10 @@ set(SOURCES
     src/Renderer/Resources/Mesh.cpp
     src/Renderer/Resources/ModelLoader.cpp
     src/Renderer/Resources/TextureLoader.cpp
+    # Renderer Utils
+    src/Renderer/Utils/BVH.cpp
+    # Renderer Passes
+    src/Renderer/Passes/BVHPass.cpp
     # Renderer Backend
     src/Renderer/Backend/OpenGLShader.cpp
     src/Renderer/Backend/OpenGLBuffer.cpp

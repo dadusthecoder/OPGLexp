@@ -64,7 +64,7 @@ int main() {
     cameraTransform.Translation = glm::vec3(0.0f, 1.0f, 5.0f);
 
     // Load sphere model
-    lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry_pass.glsl");
+    lgt::Shader* geoShader = lgt::Shader::Create("res/shaders/geometry.glsl");
     lgt::Entity rootSphere = lgt::ModelLoader::LoadModel("res/models/sphere.obj", &scene, geoShader);
 
     // Get the loaded mesh
