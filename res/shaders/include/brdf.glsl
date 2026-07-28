@@ -1,6 +1,8 @@
 #ifndef BRDF_GLSL
 #define BRDF_GLSL
 
+#include "sampling.glsl"
+
 // GGX Normal Distribution Function
 float D_GGX(float NdotH, float roughness) {
     float a = roughness * roughness;

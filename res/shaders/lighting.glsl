@@ -14,12 +14,12 @@ void main() {
 #type fragment
 #version 460 core
 
+#include "include/common.glsl"
+#include "include/brdf.glsl"
+
 layout(location = 0) out vec4 o_Color;
 
 in vec2 v_TexCoord;
-
-#include "include/common.glsl"
-#include "include/brdf.glsl"
 
 layout(binding = 0) uniform sampler2D u_gAlbedo;
 layout(binding = 1) uniform sampler2D u_gNormal;
@@ -31,6 +31,7 @@ layout(binding = 5) uniform samplerCube u_PrefilterMap;
 layout(binding = 6) uniform sampler2D u_BrdfLut;
 layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
+
 
 struct Light {
     vec3 Position;
