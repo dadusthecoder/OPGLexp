@@ -19,6 +19,10 @@ namespace lgt {
             RecalculateProjection();
         }
 
+        float GetPerspectiveVerticalFOV() const { return m_PerspectiveFOV; }
+        float GetPerspectiveNearClip() const { return m_PerspectiveNear; }
+        float GetPerspectiveFarClip() const { return m_PerspectiveFar; }
+
         void SetOrthographic(float size, float nearClip, float farClip) {
             m_ProjectionType = ProjectionType::Orthographic;
             m_OrthographicSize = size;

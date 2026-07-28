@@ -69,53 +69,134 @@ namespace lgt {
     void EditorLayer::DrawRendererSettingsPanel() {
         ImGui::Begin("Renderer Settings");
 
-        bool rtaoEnabled = Renderer::IsRTAOEnabled();
-        if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
-            Renderer::SetRTAOEnabled(rtaoEnabled);
-        }
+        if (ImGui::CollapsingHeader("Environment & Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool rtaoEnabled = Renderer::IsRTAOEnabled();
+            if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
+                Renderer::SetRTAOEnabled(rtaoEnabled);
+            }
 
-        bool rtShadowsEnabled = Renderer::IsRTShadowsEnabled();
-        if (ImGui::Checkbox("Enable RT Shadows", &rtShadowsEnabled)) {
-            Renderer::SetRTShadowsEnabled(rtShadowsEnabled);
-        }
+            bool rtShadowsEnabled = Renderer::IsRTShadowsEnabled();
+            if (ImGui::Checkbox("Enable RT Shadows", &rtShadowsEnabled)) {
+                Renderer::SetRTShadowsEnabled(rtShadowsEnabled);
+            }
 
-        bool ddgiEnabled = Renderer::IsDDGIEnabled();
-        if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
-            Renderer::SetDDGIEnabled(ddgiEnabled);
-        }
+            bool ddgiEnabled = Renderer::IsDDGIEnabled();
+            if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
+                Renderer::SetDDGIEnabled(ddgiEnabled);
+            }
 
-        bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
-        if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
-            Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
-        }
-        
-        ImGui::Separator();
-        
-        bool taaEnabled = Renderer::IsTAAEnabled();
-        if (ImGui::Checkbox("Enable TAA", &taaEnabled)) {
-            Renderer::SetTAAEnabled(taaEnabled);
-        }
-        if (taaEnabled) {
-            float blend = Renderer::GetTAABlendFactor();
-            if (ImGui::SliderFloat("TAA Blend Factor", &blend, 0.01f, 1.0f)) {
-                Renderer::SetTAABlendFactor(blend);
+            bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
+            if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
+                Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
             }
         }
-        
-        ImGui::Separator();
-        
-        bool bloomEnabled = Renderer::IsBloomEnabled();
-        if (ImGui::Checkbox("Enable Bloom", &bloomEnabled)) {
-            Renderer::SetBloomEnabled(bloomEnabled);
-        }
-        if (bloomEnabled) {
-            float thresh = Renderer::GetBloomThreshold();
-            if (ImGui::SliderFloat("Bloom Threshold", &thresh, 0.0f, 10.0f)) {
-                Renderer::SetBloomThreshold(thresh);
+
+        if (ImGui::CollapsingHeader("Camera Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto view = m_Scene->GetRegistry().view<TransformComponent, CameraComponent>();
+            for (auto entityID : view) {
+                auto [transform, cameraComp] = view.get<TransformComponent, CameraComponent>(entityID);
+                if (cameraComp.primary) {
+                    ImGui::DragFloat3("Position", &transform.Translation.x, 0.1f);
+                    
+                    glm::vec3 rotationDegrees = glm::degrees(transform.Rotation);
+                    if (ImGui::DragFloat3("Rotation", &rotationDegrees.x, 0.5f)) {
+                        transform.Rotation = glm::radians(rotationDegrees);
+                    }
+
+                    if (cameraComp.camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective) {
+                        float fov = glm::degrees(cameraComp.camera.GetPerspectiveVerticalFOV());
+                        if (ImGui::DragFloat("FOV", &fov, 0.1f, 1.0f, 179.0f)) {
+                            cameraComp.camera.SetPerspective(glm::radians(fov), cameraComp.camera.GetPerspectiveNearClip(), cameraComp.camera.GetPerspectiveFarClip());
+                        }
+                    }
+                    break; // Only show primary camera
+                }
             }
-            float strength = Renderer::GetBloomStrength();
-            if (ImGui::SliderFloat("Bloom Strength", &strength, 0.0f, 1.0f)) {
-                Renderer::SetBloomStrength(strength);
+        }
+
+        if (ImGui::CollapsingHeader("Post Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool taaEnabled = Renderer::IsTAAEnabled();
+            if (ImGui::Checkbox("Enable TAA", &taaEnabled)) {
+                Renderer::SetTAAEnabled(taaEnabled);
+            }
+            if (taaEnabled) {
+                float blend = Renderer::GetTAABlendFactor();
+                if (ImGui::SliderFloat("TAA Blend Factor", &blend, 0.01f, 1.0f)) {
+                    Renderer::SetTAABlendFactor(blend);
+                }
+            }
+            
+            ImGui::Separator();
+            
+            bool bloomEnabled = Renderer::IsBloomEnabled();
+            if (ImGui::Checkbox("Enable Bloom", &bloomEnabled)) {
+                Renderer::SetBloomEnabled(bloomEnabled);
+            }
+            if (bloomEnabled) {
+                float thresh = Renderer::GetBloomThreshold();
+                if (ImGui::SliderFloat("Bloom Threshold", &thresh, 0.0f, 10.0f)) {
+                    Renderer::SetBloomThreshold(thresh);
+                }
+                float strength = Renderer::GetBloomStrength();
+                if (ImGui::SliderFloat("Bloom Strength", &strength, 0.0f, 1.0f)) {
+                    Renderer::SetBloomStrength(strength);
+                }
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Light Management", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::Button("Add Light")) {
+                static int lightCounter = 1;
+                Entity lightEntity = m_Scene->CreateEntity("Light " + std::to_string(lightCounter++));
+                auto& lightComp = lightEntity.AddComponent<LightComponent>();
+                lightComp.Type = 1; // Point light
+                lightComp.Color = glm::vec3(1.0f);
+                lightComp.Intensity = 5.0f;
+                lightComp.Radius = 10.0f;
+                auto& tc = lightEntity.GetComponent<TransformComponent>();
+                tc.Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+            }
+
+            auto view = m_Scene->GetRegistry().view<TagComponent, LightComponent, TransformComponent>();
+            int lightIndex = 0;
+            Entity entityToDelete = {};
+            for (auto entityID : view) {
+                auto [tag, lightComp, transform] = view.get<TagComponent, LightComponent, TransformComponent>(entityID);
+                Entity entity{ entityID, m_Scene };
+
+                ImGui::PushID((int)entityID);
+                if (ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entityID, 0, "%s", tag.Tag.c_str())) {
+                    if (ImGui::Button("Delete Light")) {
+                        entityToDelete = entity;
+                    }
+                    
+                    const char* lightTypes[] = { "Directional", "Point" };
+                    ImGui::Combo("Type", &lightComp.Type, lightTypes, 2);
+
+                    ImGui::ColorEdit3("Color", &lightComp.Color.x);
+                    ImGui::SliderFloat("Intensity", &lightComp.Intensity, 0.0f, 50.0f);
+
+                    if (lightComp.Type == 0) {
+                        // Directional
+                        glm::vec3 rotationDegrees = glm::degrees(transform.Rotation);
+                        if (ImGui::DragFloat3("Direction (Rot)", &rotationDegrees.x, 0.5f)) {
+                            transform.Rotation = glm::radians(rotationDegrees);
+                        }
+                    } else {
+                        // Point
+                        ImGui::DragFloat3("Position", &transform.Translation.x, 0.1f);
+                        ImGui::DragFloat("Radius", &lightComp.Radius, 0.1f, 0.0f, 200.0f);
+                    }
+                    
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+                lightIndex++;
+            }
+
+            if (entityToDelete) {
+                m_Scene->DestroyEntity(entityToDelete);
+                if (m_SelectedEntity == entityToDelete) m_SelectedEntity = {};
             }
         }
 
