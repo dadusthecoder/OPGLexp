@@ -10,7 +10,7 @@ Initialize Game Development capabilities via ScriptRegistry and MCP Server tools
 - [x] Create `src/Game/ScriptRegistry.h` and `.cpp` for dynamic component binding.
 - [x] Update `NativeScriptComponent` and `SceneSerializer.cpp` to store `ScriptName`.
 - [x] Include and initialize `ScriptRegistry::RegisterAllScripts()` in `src/main.cpp`.
-- [x] Create python-based `scripts/mcp_game_dev.py` and `scripts/requirements_mcp.txt` for AI automation.
+- [x] Create python-based `scripts/mcp_game_dev.py` and `scripts/requirements_mcp.txt` for automation.
 - [x] Add Antigravity skill `SKILL.md` (ADR 003).
 
 ---
@@ -34,7 +34,7 @@ Initialize Game Development capabilities via ScriptRegistry and MCP Server tools
 - [x] `res/shaders/bloom_downsample.glsl` — 13-tap Jimenez 2014 downsample
 - [x] `res/shaders/bloom_upsample.glsl` — 9-tap tent filter
 - [x] `res/shaders/tonemap.glsl` — ACES filmic + gamma 2.2
-- [x] `res/shaders/lighting.glsl` — PBR + IBL + DDGI sampling + RTAO occlusion + emissive (uncommitted, created by agent)
+- [x] `res/shaders/lighting.glsl` — PBR + IBL + DDGI sampling + RTAO occlusion + emissive (uncommitted)
 - [x] IBL shaders: `ibl_equirect.glsl`, `ibl_irradiance.glsl`, `ibl_prefilter.glsl`, `ibl_brdf_lut.glsl` (uncommitted)
 - [x] C++ Pass classes created (uncommitted): `RTAOPass.h/.cpp`, `DDGIPass.h/.cpp`, `IBLPass.h/.cpp`, `BloomPass.h/.cpp`
 - [x] TAAPass.h/.cpp — check if it exists in `src/Renderer/Passes/`, if not create it

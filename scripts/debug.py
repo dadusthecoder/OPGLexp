@@ -46,7 +46,7 @@ def main():
         output = result.stdout + "\n" + result.stderr
         print(output)
         
-        # Save output to a log file for AI and User review
+        # Save output to a log file for review
         log_file = os.path.join(root_dir, 'debug_crash.log')
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(output)
