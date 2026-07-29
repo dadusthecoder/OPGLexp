@@ -58,3 +58,12 @@ private:
     }
 };
 } // namespace lgt
+
+namespace std {
+    template<>
+    struct hash<lgt::UUID> {
+        std::size_t operator()(const lgt::UUID& uuid) const {
+            return std::hash<std::string>()(uuid.str());
+        }
+    };
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <glm/glm.hpp>
 #include "Buffer.h"
 #include "Shader.h"
@@ -24,6 +25,9 @@ namespace lgt {
         
         // Sorting key (e.g. depth or material ID)
         uint64_t sortKey = 0;
+        
+        // Skeletal Animation
+        const std::array<glm::mat4, 256>* skinMatrices = nullptr;
     };
 
     class RenderCommandQueue {

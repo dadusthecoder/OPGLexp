@@ -89,7 +89,8 @@ namespace lgt {
     struct CameraComponent {
         SceneCamera camera;
         bool primary = true;
-        
+        float CameraSpeed = 5.0f; // Added speed property
+
         CameraComponent() = default;
         CameraComponent(const CameraComponent&) = default;
     };

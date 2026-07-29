@@ -23,6 +23,26 @@ namespace lgt {
         delete m_IndexBuffer;
     }
 
+    static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType type) {
+        switch (type) {
+            case ShaderDataType::None:     return 0;
+            case ShaderDataType::Float:    return GL_FLOAT;
+            case ShaderDataType::Float2:   return GL_FLOAT;
+            case ShaderDataType::Float3:   return GL_FLOAT;
+            case ShaderDataType::Float4:   return GL_FLOAT;
+            case ShaderDataType::Int:      return GL_INT;
+            case ShaderDataType::Int2:     return GL_INT;
+            case ShaderDataType::Int3:     return GL_INT;
+            case ShaderDataType::Int4:     return GL_INT;
+            case ShaderDataType::UInt:     return GL_UNSIGNED_INT;
+            case ShaderDataType::UInt2:    return GL_UNSIGNED_INT;
+            case ShaderDataType::UInt3:    return GL_UNSIGNED_INT;
+            case ShaderDataType::UInt4:    return GL_UNSIGNED_INT;
+            case ShaderDataType::UByte4:   return GL_UNSIGNED_BYTE;
+        }
+        return 0;
+    }
+
     void Mesh::SetupVAO() {
         glGenVertexArrays(1, &m_VAO);
         glBindVertexArray(m_VAO);
@@ -34,14 +54,27 @@ namespace lgt {
         for (uint32_t i = 0; i < m_Layout.attributes.size(); i++) {
             const auto& attr = m_Layout.attributes[i];
             glEnableVertexAttribArray(i);
-            glVertexAttribPointer(
-                i,                                  // location
-                attr.componentCount,                // component count (e.g., 3 for vec3)
-                GL_FLOAT,                           // type
-                attr.normalized ? GL_TRUE : GL_FALSE,
-                m_Layout.stride,                    // stride (bytes per vertex)
-                (const void*)(uintptr_t)attr.offset // offset within vertex
-            );
+            
+            GLenum glType = ShaderDataTypeToOpenGLBaseType(attr.type);
+            
+            if (glType == GL_INT || glType == GL_UNSIGNED_INT) {
+                glVertexAttribIPointer(
+                    i,
+                    attr.componentCount,
+                    glType,
+                    m_Layout.stride,
+                    (const void*)(uintptr_t)attr.offset
+                );
+            } else {
+                glVertexAttribPointer(
+                    i,                                  
+                    attr.componentCount,                
+                    glType,                           
+                    attr.normalized ? GL_TRUE : GL_FALSE,
+                    m_Layout.stride,                    
+                    (const void*)(uintptr_t)attr.offset 
+                );
+            }
         }
 
         // Bind index buffer

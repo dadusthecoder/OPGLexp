@@ -23,6 +23,7 @@ set(SOURCES
     src/Renderer/Core/RenderGraph.cpp
     src/Renderer/Core/Shader.cpp
     src/Renderer/Core/UIManager.cpp
+    src/Renderer/Core/DebugRenderer.cpp
     # Renderer Resources
     src/Renderer/Resources/Material.cpp
     src/Renderer/Resources/Mesh.cpp
@@ -50,18 +51,28 @@ set(SOURCES
     src/Scene/Entity.cpp
     src/Scene/Scene.cpp
     src/Scene/SceneSerializer.cpp
+    src/Scene/ComponentSerializerRegistry.cpp
+    src/Scene/AnimatorSystem.cpp
+    src/Core/Input.cpp
+    src/Core/AssetManager.cpp
+    src/Game/ScriptRegistry.cpp
+    src/Renderer/Resources/ModelLoader.cpp
     # Helpers
     src/Helpers/Logger.cpp
     src/Helpers/DebugStats.cpp
     src/Helpers/GPUTimer.cpp
     # Validation
     src/Renderer/Validation/RendererValidationFramework.cpp
-    # Core
-    src/Core/Input.cpp
-    # Game
-    src/Game/ScriptRegistry.cpp
     # Editor
     src/Editor/EditorLayer.cpp
+    src/Editor/Panels/HierarchyPanel.cpp
+    src/Editor/Panels/InspectorPanel.cpp
+    src/Editor/Panels/ViewportPanel.cpp
+    src/Editor/Panels/ConsolePanel.cpp
+    src/Editor/Panels/AssetBrowserPanel.cpp
+    src/Editor/Panels/StatisticsPanel.cpp
+    src/Editor/Panels/RenderGraphPanel.cpp
+    src/Editor/Panels/AnimationPanel.cpp
     # Vendor
     src/Vendor/glad.c
 )
@@ -96,6 +107,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(unofficial-imgui-node-editor CONFIG REQUIRED)
 
 target_link_libraries(OPGLexp PRIVATE
     glfw
@@ -108,6 +120,7 @@ target_link_libraries(OPGLexp PRIVATE
     EnTT::EnTT
     meshoptimizer::meshoptimizer
     nlohmann_json::nlohmann_json
+    unofficial::imgui-node-editor::imgui-node-editor
 )
 
 # Post-build task to copy 'res' directory to output directory

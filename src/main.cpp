@@ -16,6 +16,7 @@
 #include "Editor/EditorLayer.h"
 #include "Scene/NativeScript.h"
 #include "Game/ScriptRegistry.h"
+#include "Scene/ComponentSerializerRegistry.h"
 #include "Helpers/GPUTimer.h"
 #include "Renderer/Validation/RendererValidationFramework.h"
 #include "Core/Input.h"
@@ -148,6 +149,7 @@ int main() {
 
     CORE_INFO("main: calling Renderer::Init");
     // --- Engine Init ---
+    lgt::ComponentSerializerRegistry::RegisterAll();
     lgt::ScriptRegistry::RegisterAllScripts();
     lgt::Renderer::Init();
     lgt::Renderer::SetViewport(0, 0, 1280, 720);
@@ -168,7 +170,7 @@ int main() {
     lgt::Entity cameraEntity = scene.CreateEntity("MainCamera");
     cameraEntity.AddComponent<lgt::CameraComponent>();
     auto& cameraTransform       = cameraEntity.GetComponent<lgt::TransformComponent>();
-    cameraTransform.Translation = glm::vec3(0.0f, 1.0f, 5.0f);
+    cameraTransform.Translation = glm::vec3(0.0f, 2.0f, 0.0f);
 
     CORE_INFO("main: loading Sponza model");
     // Load Sponza model
@@ -177,7 +179,7 @@ int main() {
 
     // Scale Sponza dynamically from the game logic rather than hardcoding in the loader!
     auto& sponzaTransform = rootSponza.GetComponent<lgt::TransformComponent>();
-    sponzaTransform.Scale = glm::vec3(0.01f); // Convert from centimeters to meters
+    sponzaTransform.Scale = glm::vec3(0.1f); // Make Sponza 10x larger so it's clearly visible
     // Primary Directional Sun Light
     lgt::Entity lightEntity = scene.CreateEntity("SunLight");
     auto&       lightComp   = lightEntity.AddComponent<lgt::LightComponent>();

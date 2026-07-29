@@ -3,6 +3,9 @@
 #include "Components.h"
 #include "../Renderer/Resources/ModelLoader.h"
 #include "../Renderer/Core/Shader.h"
+#include "AnimatorSystem.h"
+#include "SkinnedMeshComponent.h"
+#include "AnimatorComponent.h"
 
 namespace lgt {
 
@@ -103,6 +106,9 @@ namespace lgt {
             }
         }
 
+        // --- Animator lifecycle ---
+        AnimatorSystem::Update(this, deltaTime);
+
         // Update global transforms based on local transforms recursively
         auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
         for (auto entity : view) {
@@ -169,6 +175,29 @@ namespace lgt {
                 cmd.transform = transform.GlobalTransform;
                 cmd.material = meshComp.material;
                 
+                Entity e{entity, this};
+                if (e.HasComponent<SkinnedMeshComponent>()) {
+                    // Try to find AnimatorComponent on this entity or its parents
+                    AnimatorComponent* animator = nullptr;
+                    Entity curr = e;
+                    while (curr) {
+                        if (curr.HasComponent<AnimatorComponent>()) {
+                            animator = &curr.GetComponent<AnimatorComponent>();
+                            break;
+                        }
+                        if (curr.HasComponent<RelationshipComponent>()) {
+                            auto parentId = curr.GetComponent<RelationshipComponent>().Parent;
+                            curr = (parentId != entt::null) ? Entity{parentId, this} : Entity{};
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if (animator) {
+                        cmd.skinMatrices = &animator->SkinMatrices;
+                    }
+                }
+
                 Renderer::Submit(cmd);
             }
         }

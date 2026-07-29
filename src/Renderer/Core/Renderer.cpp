@@ -16,7 +16,9 @@
 #include "../Passes/BloomPass.h"
 #include "../Passes/RTShadowPass.h"
 #include "../Passes/CSMPass.h"
+#include "../Passes/CSMPass.h"
 #include "../Passes/LightCullingPass.h"
+#include "DebugRenderer.h"
 
 namespace lgt {
 
@@ -45,7 +47,9 @@ namespace lgt {
     static Buffer* s_GlobalInstanceBuffer = nullptr;
     static Buffer* s_GlobalIndirectDrawBuffer = nullptr;
     static Buffer* s_GlobalDrawCountBuffer = nullptr;
+    static Buffer* s_GlobalSkinMatrixBuffer = nullptr;
     static Shader* s_CullShader = nullptr;
+    static Shader* s_SkinnedGeometryShader = nullptr;
     
     // For storing the loaded global geometry state
     static std::vector<float> s_GlobalVertices;
@@ -74,6 +78,8 @@ namespace lgt {
             glGenVertexArrays(1, &s_VAO);
             glBindVertexArray(s_VAO);
         }
+        
+        DebugRenderer::Init();
 
         if (!s_GBuffer) {
             FramebufferDescriptor desc;
@@ -136,6 +142,10 @@ namespace lgt {
 
         if (!s_CullShader) {
             s_CullShader = Shader::Create("res/shaders/cull.comp");
+        }
+
+        if (!s_SkinnedGeometryShader) {
+            s_SkinnedGeometryShader = Shader::Create("res/shaders/skinned_geometry_pass.glsl");
         }
 
         // Initialize empty global buffers if not already created (UploadGlobalGeometry will resize them)
@@ -216,6 +226,7 @@ namespace lgt {
         BloomPass::Shutdown();
         TAAPass::Shutdown();
         RadianceCascadesPass::Shutdown();
+        DebugRenderer::Shutdown();
 
         if (s_GlobalVertexBuffer) { delete s_GlobalVertexBuffer; s_GlobalVertexBuffer = nullptr; }
         if (s_GlobalIndexBuffer) { delete s_GlobalIndexBuffer; s_GlobalIndexBuffer = nullptr; }
@@ -279,6 +290,7 @@ namespace lgt {
         s_CameraPosition = cameraPosition;
         s_ZNear = nearPlane;
         s_ZFar = farPlane;
+        DebugRenderer::BeginScene(projMatrix * viewMatrix);
     }
 
     void Renderer::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
@@ -306,15 +318,27 @@ namespace lgt {
         
         bool useGlobalBuffers = s_GlobalMeshletBuffer && s_CullShader;
 
-        // --- 0. Prepare Indirect Draw Data ---
+        // Separate static and skinned commands
+        std::vector<RenderCommand> staticCommands;
+        std::vector<RenderCommand> skinnedCommands;
+        
+        for (const auto& cmd : s_CommandQueue.m_Commands) {
+            if (cmd.skinMatrices) {
+                skinnedCommands.push_back(cmd);
+            } else {
+                staticCommands.push_back(cmd);
+            }
+        }
+
+        // --- 0. Prepare Indirect Draw Data (Static Meshes) ---
         if (useGlobalBuffers) {
             std::vector<InstanceData> instances;
-            instances.reserve(s_CommandQueue.m_Commands.size());
+            instances.reserve(staticCommands.size());
 
             std::unordered_map<Mesh*, uint32_t> meshOffsets;
             s_GlobalMeshlets.clear();
 
-            for (const auto& cmd : s_CommandQueue.m_Commands) {
+            for (const auto& cmd : staticCommands) {
                 if (cmd.mesh) {
                     if (meshOffsets.find(cmd.mesh) == meshOffsets.end()) {
                         meshOffsets[cmd.mesh] = static_cast<uint32_t>(s_GlobalMeshlets.size());
@@ -417,8 +441,8 @@ namespace lgt {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glEnable(GL_DEPTH_TEST);
             
-            if (useGlobalBuffers && !s_CommandQueue.m_Commands.empty() && s_CommandQueue.m_Commands[0].material) {
-                auto material = s_CommandQueue.m_Commands[0].material;
+            if (useGlobalBuffers && !staticCommands.empty() && staticCommands[0].material) {
+                auto material = staticCommands[0].material;
                 material->Bind();
                 material->GetShader()->SetMat4("u_ViewProjection", s_ViewProjection);
                 material->GetShader()->SetMat4("u_PrevViewProjection", s_PrevViewProjection);
@@ -441,8 +465,8 @@ namespace lgt {
                 s_GlobalIndirectDrawBuffer->Unbind();
                 s_GlobalIndexBuffer->Unbind();
             } else {
-                // Legacy loop
-                for (const auto& cmd : s_CommandQueue.m_Commands) {
+                // Legacy loop for static commands without global buffer
+                for (const auto& cmd : staticCommands) {
                     if (cmd.pipeline) cmd.pipeline->Bind();
                     
                     if (cmd.material) {
@@ -473,6 +497,63 @@ namespace lgt {
                     }
                 }
             }
+
+            // --- Skinned Meshes Pass ---
+            if (!skinnedCommands.empty()) {
+                if (!s_GlobalSkinMatrixBuffer) {
+                    s_GlobalSkinMatrixBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, 256 * sizeof(glm::mat4), nullptr, BufferUsage::DynamicDraw);
+                }
+
+                s_SkinnedGeometryShader->Bind();
+                s_SkinnedGeometryShader->SetMat4("u_ViewProjection", s_ViewProjection);
+
+                for (const auto& cmd : skinnedCommands) {
+                    // Upload skin matrices
+                    s_GlobalSkinMatrixBuffer->SetData(cmd.skinMatrices->data(), 256 * sizeof(glm::mat4), 0);
+                    s_GlobalSkinMatrixBuffer->BindBase(6); // Bind to binding = 6 in shader
+
+                    if (cmd.material) {
+                        // We use the new skinned shader instead of the material's shader for the vertex pass,
+                        // but we need to set the material properties for the fragment pass.
+                        s_SkinnedGeometryShader->SetMat4("u_Model", cmd.transform);
+                        
+                        s_SkinnedGeometryShader->SetFloat3("u_Material.Albedo", cmd.material->Albedo);
+                        s_SkinnedGeometryShader->SetFloat("u_Material.Metallic", cmd.material->Metallic);
+                        s_SkinnedGeometryShader->SetFloat("u_Material.Roughness", cmd.material->Roughness);
+                        
+                        s_SkinnedGeometryShader->SetInt("u_UseAlbedoMap", cmd.material->AlbedoMap ? 1 : 0);
+                        if (cmd.material->AlbedoMap) {
+                            cmd.material->AlbedoMap->Bind(0);
+                            s_SkinnedGeometryShader->SetInt("u_AlbedoMap", 0);
+                        }
+                        
+                        s_SkinnedGeometryShader->SetInt("u_UseNormalMap", cmd.material->NormalMap ? 1 : 0);
+                        if (cmd.material->NormalMap) {
+                            cmd.material->NormalMap->Bind(1);
+                            s_SkinnedGeometryShader->SetInt("u_NormalMap", 1);
+                        }
+                        
+                        s_SkinnedGeometryShader->SetInt("u_UseMetallicMap", cmd.material->MetallicMap ? 1 : 0);
+                        if (cmd.material->MetallicMap) {
+                            cmd.material->MetallicMap->Bind(2);
+                            s_SkinnedGeometryShader->SetInt("u_MetallicMap", 2);
+                        }
+                        
+                        s_SkinnedGeometryShader->SetInt("u_UseRoughnessMap", cmd.material->RoughnessMap ? 1 : 0);
+                        if (cmd.material->RoughnessMap) {
+                            cmd.material->RoughnessMap->Bind(3);
+                            s_SkinnedGeometryShader->SetInt("u_RoughnessMap", 3);
+                        }
+                    }
+
+                    if (cmd.mesh) {
+                        cmd.mesh->Bind();
+                        glDrawElementsInstanced(GL_TRIANGLES, cmd.indexCount, GL_UNSIGNED_INT, nullptr, cmd.instanceCount);
+                        cmd.mesh->Unbind();
+                    }
+                }
+            }
+
             s_GBuffer->Unbind();
         }
 
@@ -745,6 +826,15 @@ namespace lgt {
 
             glBindVertexArray(s_QuadVAO);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            
+            // Draw debug lines over the final image
+            glEnable(GL_DEPTH_TEST);
+            
+            // Rebind G-buffer depth to final buffer so lines can be depth tested (if desired)
+            // But we don't have a shared depth buffer on FinalBuffer. So we'll draw without depth for now.
+            glDisable(GL_DEPTH_TEST);
+            
+            DebugRenderer::EndScene();
 
             s_FinalBuffer->Unbind();
         }

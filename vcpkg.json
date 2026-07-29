@@ -15,6 +15,7 @@
       ]
     },
     "imguizmo",
+    "imgui-node-editor",
     "spdlog",
     "entt",
     "meshoptimizer",

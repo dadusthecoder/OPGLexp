@@ -1,6 +1,14 @@
 #pragma once
 #include "../Scene/Scene.h"
 #include "../Scene/Entity.h"
+#include "Panels/HierarchyPanel.h"
+#include "Panels/InspectorPanel.h"
+#include "Panels/ViewportPanel.h"
+#include "Panels/ConsolePanel.h"
+#include "Panels/AssetBrowserPanel.h"
+#include "Panels/StatisticsPanel.h"
+#include "Panels/RenderGraphPanel.h"
+#include "Panels/AnimationPanel.h"
 
 namespace lgt {
     class EditorLayer {
@@ -10,19 +18,28 @@ namespace lgt {
         void OnImGuiRender();
         
     private:
+        void DrawMenuBar();
+        void DrawToolbar();
+        void SetDarkTheme();
+
+    private:
         Scene* m_Scene = nullptr;
         Entity m_SelectedEntity;
         
-        bool m_ViewportFocused = false;
-        bool m_ViewportHovered = false;
         float m_CameraSpeed = 5.0f;
         
-        void DrawHierarchyPanel();
-        void DrawEntityNode(Entity entity);
-        void DrawPropertiesPanel();
-        void DrawViewportPanel();
-        void DrawConsolePanel();
-        void DrawDebugPanel();
-        void DrawRendererSettingsPanel();
+        // Panels
+        HierarchyPanel m_HierarchyPanel;
+        InspectorPanel m_InspectorPanel;
+        ViewportPanel m_ViewportPanel;
+        ConsolePanel m_ConsolePanel;
+        AssetBrowserPanel m_AssetBrowserPanel;
+        StatisticsPanel m_StatisticsPanel;
+        RenderGraphPanel m_RenderGraphPanel;
+        AnimationPanel m_AnimationPanel;
+        
+        bool m_ShowStatistics = false;
+        bool m_ShowRenderGraph = false;
+        bool m_ShowAnimationPanel = true;
     };
 }
