@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CurrentSprint</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Current Sprint</h1>
+<h2>Objective</h2>
+<p>Initialize Game Development capabilities via ScriptRegistry and MCP Server tools.</p>
+<h2>Branch</h2>
+<p><code>game-dev</code> (merge to <code>master</code> when complete)</p>
+<h2>Completed Tasks</h2>
+<ul>
+<li>[x] Create <code>src/Game/ScriptRegistry.h</code> and <code>.cpp</code> for dynamic component binding.</li>
+<li>[x] Update <code>NativeScriptComponent</code> and <code>SceneSerializer.cpp</code> to store <code>ScriptName</code>.</li>
+<li>[x] Include and initialize <code>ScriptRegistry::RegisterAllScripts()</code> in <code>src/main.cpp</code>.</li>
+<li>[x] Create python-based <code>scripts/mcp_game_dev.py</code> and <code>scripts/requirements_mcp.txt</code> for automation.</li>
+<li>[x] Add Antigravity skill <code>SKILL.md</code> (ADR 003).</li>
+</ul>
+<hr />
+<h1>Completed Sprint: AAA Renderer Upgrade</h1>
+<h2>Completed Tasks</h2>
+<ul>
+<li>[x] BVH Infrastructure: <code>src/Renderer/Utils/BVH.h/.cpp</code>, <code>src/Renderer/Passes/BVHPass.h/.cpp</code> (SAH-binned, GPU SSBO upload)</li>
+<li>[x] G-Buffer Rewrite: <code>res/shaders/geometry.glsl</code> — oct-encoded normals, TBN normal mapping, velocity (motion vectors) as 4th attachment (RG16F)</li>
+<li>[x] Renderer.cpp updated: 4th G-Buffer attachment (velocity), <code>s_PrevViewProjection</code> tracking, <code>BVHPass::Build()</code> called after geometry upload</li>
+<li>[x] GLSL include system added to <code>OpenGLShader.cpp</code> (recursive <code>#include</code> resolution)</li>
+<li>[x] <code>res/shaders/include/common.glsl</code> — PI constants, SRGBToLinear, ReconstructWorldPos, OctEncode/Decode</li>
+<li>[x] <code>res/shaders/include/sampling.glsl</code> — Hammersley, Halton, WangHash, CosineHemisphere, UniformSphere, SphericalFibonacci, TangentToWorld, ImportanceSampleGGX, OctahedralEncode/Decode</li>
+<li>[x] <code>res/shaders/include/bvh.glsl</code> — BVHNode struct, HitInfo, IntersectAABB (slab), IntersectTriangle (Möller-Trumbore), TraceAnyHit, TraceClosestHit (iterative stack)</li>
+<li>[x] <code>res/shaders/include/brdf.glsl</code> — D_GGX, G_SmithGGX, F_Schlick, CookTorranceSpecular, DirectLight, IntegrateBRDF</li>
+<li>[x] <code>res/shaders/rtao.comp</code> — 8-ray hemisphere AO via BVH, blue noise jitter, spatiotemporal</li>
+<li>[x] <code>res/shaders/rtao_denoise.comp</code> — bilateral 5x5 spatial filter</li>
+<li>[x] <code>res/shaders/ddgi_probe_trace.comp</code> — 64 rays/probe, BVH closest hit, direct lighting + shadow, sky miss</li>
+<li>[x] <code>res/shaders/ddgi_probe_update.comp</code> — irradiance atlas update, octahedral projection, temporal blend (hysteresis=0.97)</li>
+<li>[x] <code>res/shaders/taa.glsl</code> — history reprojection via velocity, YCoCg neighbourhood clamp, disocclusion handling</li>
+<li>[x] <code>res/shaders/bloom_downsample.glsl</code> — 13-tap Jimenez 2014 downsample</li>
+<li>[x] <code>res/shaders/bloom_upsample.glsl</code> — 9-tap tent filter</li>
+<li>[x] <code>res/shaders/tonemap.glsl</code> — ACES filmic + gamma 2.2</li>
+<li>[x] <code>res/shaders/lighting.glsl</code> — PBR + IBL + DDGI sampling + RTAO occlusion + emissive (uncommitted)</li>
+<li>[x] IBL shaders: <code>ibl_equirect.glsl</code>, <code>ibl_irradiance.glsl</code>, <code>ibl_prefilter.glsl</code>, <code>ibl_brdf_lut.glsl</code> (uncommitted)</li>
+<li>[x] C++ Pass classes created (uncommitted): <code>RTAOPass.h/.cpp</code>, <code>DDGIPass.h/.cpp</code>, <code>IBLPass.h/.cpp</code>, <code>BloomPass.h/.cpp</code></li>
+<li>[x] TAAPass.h/.cpp — check if it exists in <code>src/Renderer/Passes/</code>, if not create it</li>
+<li>[x] CMakeLists.txt — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)</li>
+<li>[x] Commit everything uncommitted — <code>git add -A &amp;&amp; git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"</code></li>
+<li>[x] Re-establish Sponza benchmark scene — loaded <code>res/models/sponza/sponza.obj</code> in <code>src/main.cpp</code> and re-enabled RTAO execution in <code>Renderer.cpp</code></li>
+<li>[x] Added <code>Renderer Settings</code> ImGui panel to toggle post-processing and RT effects dynamically.</li>
+<li>[x] Fixed Bloom blurring issue by adding threshold logic.</li>
+<li>[x] Implemented Ray-Traced Shadows (<code>RTShadowPass</code>) via Compute Shader BVH <code>TraceAnyHit</code> + bilateral <code>shadow_blur.comp</code>.</li>
+<li>[x] Implemented Compute-Based Clustered Deferred Light Culling (<code>LightCullingPass</code>), optimized SSBO structures, fixed GL_INVALID_OPERATION type mismatches.</li>
+<li>[x] Implemented Cascaded Shadow Maps (CSM) with PCF (<code>CSMPass</code>), utilizing GL_TEXTURE_2D_ARRAY for cascade layers and a customized depth shader.</li>
+<li>[x] Fixed missing shadows by adjusting CSM orthographic projection bounds to include geometry behind the camera.</li>
+<li>[x] Fixed GPU memory overwrite issue by correctly sizing <code>s_GlobalIndirectDrawBuffer</code> for meshlet counts when culling is disabled during shadow passes.</li>
+</ul>
+<h2>Objective Status</h2>
+<p><strong>ACHIEVED</strong> — DDGI Production-Grade Overhaul complete.</p>
+<hr />
+<h1>Completed Sprint: DDGI Production-Grade Overhaul</h1>
+<h2>All Tasks Complete</h2>
+<ul>
+<li>[x] <code>DDGIPass.h</code> — Rewritten (distance atlas, probe state buffer, 4 shaders)</li>
+<li>[x] <code>DDGIPass.cpp</code> — Rewritten (6-pass pipeline, correct atlas dimensions)</li>
+<li>[x] <code>ddgi_probe_trace.comp</code> — Rewritten (Rodrigues rotation, multi-bounce, backface detect, TraceAnyHit fixed)</li>
+<li>[x] <code>ddgi_probe_update.comp</code> — Rewritten (dual mode irradiance/distance, gamma 5.0 encoding, change detection)</li>
+<li>[x] <code>ddgi_border_copy.comp</code> — NEW (octahedral border mirroring, probeIndex→3D→atlas decomposition fixed)</li>
+<li>[x] <code>ddgi_probe_classify.comp</code> — NEW (backface counting, probe relocation, state management)</li>
+<li>[x] <code>lighting.glsl</code> — SampleDDGI rewritten (Chebyshev visibility + backface rejection + probe state + gamma decode)</li>
+<li>[x] <code>Renderer.cpp</code> — Distance atlas (unit 10), probe state SSBO (binding 10), probesPerRow uniform</li>
+<li>[x] EditorLayer updated with DDGI tuning sliders (Intensity, Bounce Intensity, Hysteresis, Max Ray Distance).</li>
+<li>[x] Build Debug succeeds, shaders copied</li>
+<li>[x] Roadmap/DDGI.md updated</li>
+</ul>
+</body>
+</html>

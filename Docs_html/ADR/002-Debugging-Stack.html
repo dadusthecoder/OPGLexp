@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>002-Debugging-Stack</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Title: Zero-Cost Debugging Stack</h1>
+<h2>Status</h2>
+<p>Accepted</p>
+<h2>Context</h2>
+<p>The engine needed a way to log and display statistics (like draw calls and meshlet counts) dynamically in the Editor UI without introducing overhead to the final shipped game. Traditional <code>std::cout</code> statements are insufficient for Editor tools and too costly for release builds.</p>
+<h2>Decision</h2>
+<ul>
+<li>We introduced <code>LGT_DIST</code> as a compile definition in <code>CMakeLists.txt</code> for the Dist (Release) configuration.</li>
+<li>We built a <code>DebugStats</code> utility that records key-value strings safely across threads using a mutex.</li>
+<li>We built an <code>ImGuiConsoleSink</code> that hooks into <code>spdlog</code> to intercept all engine logs for rendering in the Editor.</li>
+<li>When <code>LGT_DIST</code> is defined, <code>DebugStats::Report()</code> calls evaluate to empty stubs, and logging macros (<code>CORE_INFO</code>, <code>CORE_TRACE</code>, etc.) compile out entirely, ensuring zero runtime cost.</li>
+</ul>
+<h2>Consequences</h2>
+<ul>
+<li><strong>Positive</strong>: Clean logging inside the Editor, robust stat tracking, and zero impact on distribution builds.</li>
+<li><strong>Negative</strong>: Extra compilation configuration to maintain; slight macro obfuscation around logging methods.</li>
+</ul>
+</body>
+</html>

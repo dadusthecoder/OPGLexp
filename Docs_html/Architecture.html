@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Atlas Engine Architecture</h1>
+<h2>Overview</h2>
+<p>Atlas Engine (currently OPGLexp) is an ongoing project to build an AAA-grade, GPU-driven renderer and game engine using C++ and OpenGL 4.6.</p>
+<h2>Subsystems</h2>
+<ul>
+<li><strong>Core</strong>: Input, Resource Management, Application Loop.</li>
+<li><strong>Scene</strong>: EnTT-based Entity Component System, C++ NativeScript behaviors, JSON Serialization.</li>
+<li><strong>Renderer</strong>: G-Buffer Deferred rendering, PBR, Directional/Point lights, ImGui integration.</li>
+<li><strong>Game</strong>: Uses <code>ScriptRegistry</code> to dynamically map <code>NativeScriptComponent</code> scripts to runtime instances. C++ Game logic is orchestrated using the <code>scripts/mcp_game_dev.py</code> MCP server.</li>
+<li><strong>Editor</strong>: Built-in editor with Scene Hierarchy, Properties Panel, Viewport, and Console.</li>
+<li><strong>Helpers</strong>: Zero-cost Debugging Stack (<code>LGT_DIST</code> macro), <code>spdlog</code> integration, and thread-safe <code>DebugStats</code> module for UI tracking.</li>
+</ul>
+<h2>Current State</h2>
+<p>The engine has robust rendering capabilities and is actively expanding its game-development tools. An MCP server automates AI-assisted game development.</p>
+</body>
+</html>

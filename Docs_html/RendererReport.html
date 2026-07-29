@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RendererReport</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Renderer Report: Clustered Light Culling &amp; Cascaded Shadow Maps</h1>
+<h2>Overview</h2>
+<p>Implemented Compute-Based Clustered Deferred Light Culling using OpenGL Compute Shaders and SSBOs.
+The system partitions the view frustum into a 3D grid (clusters) and culls lights against the AABBs of these clusters.</p>
+<p>Also implemented Cascaded Shadow Maps (CSM) to replace the old RTShadowPass for directional lights.</p>
+<h2>Implementation Details (Clustered Light Culling)</h2>
+<ol>
+<li><strong>Pass Structure</strong>: Created <code>LightCullingPass</code> (<code>LightCullingPass.h/cpp</code>) which dispatches two compute shaders:</li>
+<li><code>cluster_aabb.comp</code>: Computes view-space AABBs for each cluster slice. (Only runs when screen resizes).</li>
+<li><code>cluster_cull.comp</code>: Intersects all lights against the cluster AABBs and populates a global light index list and a light grid offset/count list.</li>
+<li><strong>SSBOs</strong>:</li>
+<li><code>ClusterAABBBuffer</code> (Binding 0)</li>
+<li><code>LightDataBuffer</code> (Binding 1)</li>
+<li><code>LightGridBuffer</code> (Binding 2)</li>
+<li><code>LightIndexBuffer</code> (Binding 3)</li>
+<li><code>GlobalIndexCountBuffer</code> (Binding 4)</li>
+<li><strong>Lighting Pass</strong>: Updated <code>lighting.glsl</code> to remove the uniform light loop and instead use the SSBOs to fetch the lights specifically for the current pixel's cluster.</li>
+</ol>
+<h2>Implementation Details (Cascaded Shadow Maps)</h2>
+<ol>
+<li><strong>Pass Structure</strong>: Created <code>CSMPass</code> (<code>CSMPass.h/cpp</code>).</li>
+<li>Generates 4 cascade layers in a <code>GL_TEXTURE_2D_ARRAY</code>.</li>
+<li>Computes practical split scheme distances and builds light-space orthographic projections per cascade.</li>
+<li>Executes by rebinding the global instance SSBOs and indirect draw buffers to re-render the scene from the directional light's perspective.</li>
+<li><strong>Shaders</strong>:</li>
+<li><code>csm_depth.glsl</code>: Transform-only vertex shader reusing the SSBO vertex pull pattern. Empty fragment shader.</li>
+<li><code>lighting.glsl</code>: Computes PCF shadowing by selecting the appropriate cascade slice based on view-space depth.</li>
+</ol>
+<h2>Debugging / Fixes</h2>
+<ul>
+<li><strong>Link Error</strong>: Fixed undefined symbols by adding <code>src/Renderer/Passes/LightCullingPass.cpp</code> to <code>CMakeLists.txt</code>.</li>
+<li><strong>GL_INVALID_OPERATION Error</strong>: </li>
+<li>Found that <code>u_GridSize</code> was being set as <code>ivec3</code> in C++ via <code>glProgramUniform3i</code>, but the compute shaders declared it as <code>uvec3</code>. Changed shaders and C++ to use <code>ivec3</code>.</li>
+<li>Found that <code>u_LightCount</code> in <code>cluster_cull.comp</code> was declared as <code>uint</code>, but C++ was setting it with <code>glProgramUniform1i</code>. Changed the shader declaration to <code>int</code> and casted to <code>uint</code> internally.</li>
+<li>Found that the old uniform <code>u_LightCount</code> was still being passed to <code>s_LightingShader</code>, and the new uniforms (<code>u_ViewMatrix</code>, <code>u_GridSize</code>, <code>u_ZNear</code>, <code>u_ZFar</code>) were missing. Updated <code>Renderer.cpp</code> to set the correct uniforms.</li>
+</ul>
+<h2>Next Steps</h2>
+<p>The renderer is now fully operational with Clustered Light Culling and Cascaded Shadow Maps. We can proceed to the next objective: <strong>Geometry Pipeline Overhaul &amp; SPOM Integration</strong>.</p>
+</body>
+</html>

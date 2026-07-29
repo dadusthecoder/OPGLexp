@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HandoffNote</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Current Sprint</h1>
+<h2>Objective</h2>
+<p>AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on <code>engine</code> branch.</p>
+<h2>Branch</h2>
+<p><code>engine</code> (merge to <code>master</code> when complete)</p>
+<h2>Completed Tasks</h2>
+<ul>
+<li>[x] BVH Infrastructure: <code>src/Renderer/Utils/BVH.h/.cpp</code>, <code>src/Renderer/Passes/BVHPass.h/.cpp</code> (SAH-binned, GPU SSBO upload)</li>
+<li>[x] G-Buffer Rewrite: <code>res/shaders/geometry.glsl</code> — oct-encoded normals, TBN normal mapping, velocity (motion vectors) as 4th attachment (RG16F)</li>
+<li>[x] Renderer.cpp updated: 4th G-Buffer attachment (velocity), <code>s_PrevViewProjection</code> tracking, <code>BVHPass::Build()</code> called after geometry upload</li>
+<li>[x] GLSL include system added to <code>OpenGLShader.cpp</code> (recursive <code>#include</code> resolution)</li>
+<li>[x] <code>res/shaders/include/common.glsl</code> — PI constants, SRGBToLinear, ReconstructWorldPos, OctEncode/Decode</li>
+<li>[x] <code>res/shaders/include/sampling.glsl</code> — Hammersley, Halton, WangHash, CosineHemisphere, UniformSphere, SphericalFibonacci, TangentToWorld, ImportanceSampleGGX, OctahedralEncode/Decode</li>
+<li>[x] <code>res/shaders/include/bvh.glsl</code> — BVHNode struct, HitInfo, IntersectAABB (slab), IntersectTriangle (Möller-Trumbore), TraceAnyHit, TraceClosestHit (iterative stack)</li>
+<li>[x] <code>res/shaders/include/brdf.glsl</code> — D_GGX, G_SmithGGX, F_Schlick, CookTorranceSpecular, DirectLight, IntegrateBRDF</li>
+<li>[x] <code>res/shaders/rtao.comp</code> — 8-ray hemisphere AO via BVH, blue noise jitter, spatiotemporal</li>
+<li>[x] <code>res/shaders/rtao_denoise.comp</code> — bilateral 5x5 spatial filter</li>
+<li>[x] <code>res/shaders/ddgi_probe_trace.comp</code> — 64 rays/probe, BVH closest hit, direct lighting + shadow, sky miss</li>
+<li>[x] <code>res/shaders/ddgi_probe_update.comp</code> — irradiance atlas update, octahedral projection, temporal blend (hysteresis=0.97)</li>
+<li>[x] <code>res/shaders/taa.glsl</code> — history reprojection via velocity, YCoCg neighbourhood clamp, disocclusion handling</li>
+<li>[x] <code>res/shaders/bloom_downsample.glsl</code> — 13-tap Jimenez 2014 downsample</li>
+<li>[x] <code>res/shaders/bloom_upsample.glsl</code> — 9-tap tent filter</li>
+<li>[x] <code>res/shaders/tonemap.glsl</code> — ACES filmic + gamma 2.2</li>
+<li>[x] <code>res/shaders/lighting.glsl</code> — PBR + IBL + DDGI sampling + RTAO occlusion + emissive (uncommitted)</li>
+<li>[x] IBL shaders: <code>ibl_equirect.glsl</code>, <code>ibl_irradiance.glsl</code>, <code>ibl_prefilter.glsl</code>, <code>ibl_brdf_lut.glsl</code> (uncommitted)</li>
+<li>[x] C++ Pass classes created (uncommitted): <code>RTAOPass.h/.cpp</code>, <code>DDGIPass.h/.cpp</code>, <code>IBLPass.h/.cpp</code>, <code>BloomPass.h/.cpp</code></li>
+</ul>
+<h2>NEXT TASK (incomplete — pick up here)</h2>
+<ol>
+<li><strong>TAAPass.h/.cpp</strong> — check if it exists in <code>src/Renderer/Passes/</code>, if not create it</li>
+<li><strong>CMakeLists.txt</strong> — add ALL new .cpp files (BVH.cpp, BVHPass.cpp, RTAOPass.cpp, DDGIPass.cpp, IBLPass.cpp, BloomPass.cpp, TAAPass.cpp)</li>
+<li><strong>Commit everything uncommitted</strong> — <code>git add -A &amp;&amp; git commit -m "feat(renderer): add IBL, RTAO, DDGI, Bloom, TAA pass classes and lighting shaders"</code></li>
+<li><strong>Renderer.cpp integration</strong> — wire all passes into <code>ExecuteQueue()</code>:</li>
+<li>After geometry pass: run <code>RTAOPass::Execute(gDepthID, gNormalID, ...)</code></li>
+<li>Run <code>DDGIPass::Execute(sunDir, sunColor, ...)</code> </li>
+<li>In lighting pass: bind RTAO output (slot 7) + DDGI atlas (slot 8) + IBL maps (slots 4,5,6)</li>
+<li>After HDR buffer: run <code>TAAPass::Execute(hdrColorID, velocityID, depthID, frame)</code></li>
+<li>After TAA: run <code>BloomPass::Execute(taaResolvedID, threshold, strength)</code></li>
+<li>Replace post_process.glsl with <code>tonemap.glsl</code> (ACES)</li>
+<li>Track <code>s_FrameIndex</code> counter in Renderer.cpp</li>
+<li>Apply Halton jitter to projection matrix before BeginScene</li>
+<li><strong>Build clean</strong> — <code>cmake --build build --config Debug</code></li>
+<li><strong>Commit integration</strong> — <code>feat(renderer): integrate AAA pipeline into Renderer::ExecuteQueue</code></li>
+<li><strong>Merge to master</strong> — <code>git checkout master &amp;&amp; git merge engine &amp;&amp; git push origin master</code></li>
+<li><strong>Update Docs/Architecture.md and Docs/Decisions.md</strong></li>
+</ol>
+</body>
+</html>

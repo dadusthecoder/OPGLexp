@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Engine</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Engine Core</h1>
+<h2>Application Flow</h2>
+<p>The engine initializes through <code>Renderer::Init()</code> and <code>UIManager::Init()</code>. The main loop calculates delta time, polls input (<code>lgt::Input::Update()</code>), updates the <code>Scene</code> (NativeScripts and transforms), and submits rendering commands to the <code>RenderCommandQueue</code>.</p>
+<h2>Resource Management</h2>
+<p>Assets are managed via a generic template cache (<code>ResourceManager</code>) to ensure resources (like Textures and Shaders) are loaded once and shared via <code>std::shared_ptr</code>. Models are loaded via <code>ModelLoader</code> using Assimp and optimized with <code>meshoptimizer</code>.</p>
+</body>
+</html>

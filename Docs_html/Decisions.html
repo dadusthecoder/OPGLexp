@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decisions</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+<h1>Architecture Decisions</h1>
+<p>This document summarizes major architectural decisions made during development. For detailed rationale, see the <code>Docs/ADR/</code> folder.</p>
+<ul>
+<li><strong>2026-07-29</strong>: Implemented <code>ScriptRegistry</code> and a Game Dev MCP Server for automated game development workflows (ADR 003).</li>
+<li><strong>2026-07-27</strong>: Adopted an AI-assisted development workflow using <code>AGENTS.md</code> and detailed documentation to synchronize context between LLMs.</li>
+<li><strong>2026-07-26</strong>: Chose EnTT for the Entity Component System (ECS) to maintain data locality and performance.</li>
+<li><strong>2026-07-26</strong>: Decided to use <code>meshoptimizer</code> to automatically optimize geometry for vertex cache and overdraw at model load time.</li>
+</ul>
+</body>
+</html>
