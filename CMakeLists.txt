@@ -31,7 +31,8 @@ set(SOURCES
     # Renderer Utils
     src/Renderer/Utils/BVH.cpp
     # Renderer Passes
-    src/Renderer/Passes/BVHPass.cpp
+    src/Renderer/Core/RayTracingSubsystem.cpp
+    src/Renderer/Passes/RadianceCascadesPass.cpp
     src/Renderer/Passes/RTAOPass.cpp
     src/Renderer/Passes/DDGIPass.cpp
     src/Renderer/Passes/IBLPass.cpp
@@ -52,8 +53,13 @@ set(SOURCES
     # Helpers
     src/Helpers/Logger.cpp
     src/Helpers/DebugStats.cpp
+    src/Helpers/GPUTimer.cpp
+    # Validation
+    src/Renderer/Validation/RendererValidationFramework.cpp
     # Core
     src/Core/Input.cpp
+    # Game
+    src/Game/ScriptRegistry.cpp
     # Editor
     src/Editor/EditorLayer.cpp
     # Vendor

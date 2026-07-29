@@ -11,6 +11,7 @@ uniform ivec3 u_ProbeGridSize;
 uniform vec3  u_ProbeOrigin;
 uniform vec3  u_ProbeSpacing;
 uniform float u_MaxRayDistance;
+uniform float u_BounceIntensity;
 uniform int   u_FrameIndex;
 uniform vec3  u_SunDirection;
 uniform vec3  u_SunColor;
@@ -69,19 +70,17 @@ void main() {
             hitDist = isBackface ? -hit.distance : hit.distance;
 
             if (!isBackface) {
-                vec3 albedo = vec3(0.5); // Static albedo (no per-triangle material data yet)
+                vec3 albedo = vec3(0.5);
 
-                // Direct sun lighting at hit point
+                // Direct sun lighting at hit point (Lambertian BRDF)
                 vec3 L = normalize(-u_SunDirection);
                 float NdotL = max(dot(hit.normal, L), 0.0);
 
-                // Shadow ray toward sun
                 bool inShadow = TraceAnyHit(hit.position + hit.normal * 0.005, L, 1000.0);
-
-                vec3 directLight = inShadow ? vec3(0.0) : albedo * u_SunColor * u_SunIntensity * NdotL * INV_PI;
-                radiance = directLight;
+                radiance = inShadow ? vec3(0.0) : albedo * u_SunColor * u_SunIntensity * NdotL * INV_PI;
 
                 // Multi-bounce: sample previous-frame irradiance at hit point
+                // Attenuate by 0.45 to prevent energy accumulation across frames
                 int probesPerRow = u_ProbeGridSize.x * u_ProbeGridSize.z;
                 vec3 hitGridPos = (hit.position - u_ProbeOrigin) / u_ProbeSpacing;
                 ivec3 nearestProbe = clamp(ivec3(round(hitGridPos)), ivec3(0), u_ProbeGridSize - 1);
@@ -90,19 +89,19 @@ void main() {
 
                 int tileX = nearestIdx % probesPerRow;
                 int tileY = nearestIdx / probesPerRow;
-                vec2 octUV = OctEncode(hit.normal); // [0,1] range
+                vec2 octUV = OctEncode(hit.normal);
                 vec2 texelUV = (vec2(tileX * 8 + 1, tileY * 8 + 1) + octUV * 6.0)
                              / vec2(textureSize(u_PrevIrradiance, 0));
                 vec3 indirectIrradiance = pow(texture(u_PrevIrradiance, texelUV).rgb, vec3(5.0));
 
-                radiance += albedo * indirectIrradiance;
+                radiance += albedo * indirectIrradiance * INV_PI * u_BounceIntensity;
             }
             // Backface hits: radiance stays zero, hitDist is negative
         } else {
-            // Ray miss: sky gradient
+            // Ray miss: subtle sky contribution
             hitDist = u_MaxRayDistance;
             float skyT = max(0.0, rayDir.y);
-            radiance = mix(vec3(0.4, 0.5, 0.6), vec3(0.7, 0.8, 1.0), skyT) * 0.5;
+            radiance = mix(vec3(0.15, 0.18, 0.25), vec3(0.35, 0.45, 0.6), skyT) * 0.3;
         }
     }
 

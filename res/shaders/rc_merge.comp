@@ -1,0 +1,223 @@
+#type compute
+#version 460 core
+#include "include/common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+uniform int u_CascadeCount;
+uniform int u_BaseProbeSpacing;
+uniform int u_ScreenWidth;
+uniform int u_ScreenHeight;
+uniform int u_CurrentCascade; // The cascade we are updating (C)
+
+layout(binding = 0) uniform sampler2D u_gDepth;
+layout(binding = 1) uniform sampler2D u_gNormal;
+
+// Atlas is ReadWrite since we read from C+1 and write to C.
+layout(rgba16f, binding = 0) uniform image2D u_RadianceAtlas;
+
+uniform int u_DebugCategory;
+uniform int u_DebugMode;
+
+// Helper to fetch G-Buffer depth & normal safely
+void GetGBuffer(vec2 pixelPos, out float depth, out vec3 normal) {
+    vec2 uv = pixelPos / vec2(u_ScreenWidth, u_ScreenHeight);
+    depth = texture(u_gDepth, uv).r;
+    normal = texture(u_gNormal, uv).xyz;
+}
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y; // This y is LOCAL to the current cascade!
+
+    if (x >= u_ScreenWidth || y >= u_ScreenHeight) {
+        return;
+    }
+
+    int C = u_CurrentCascade;
+    int nextC = C + 1;
+    
+    if (u_DebugCategory == 1 && u_DebugMode == 0) { // Stage -1: Shader Dispatch
+        // We expect trace to write magenta. Here we write green.
+        uint writeY = C * u_ScreenHeight + y;
+        imageStore(u_RadianceAtlas, ivec2(x, writeY), vec4(0.0, 1.0, 0.0, 1.0));
+        return;
+    }
+    
+    if (u_DebugCategory == 2) { // Geometry Debug
+        // Do not merge anything, we want to view the raw trace output of Cascade 0
+        return;
+    }
+
+    uint spacing_C = u_BaseProbeSpacing * (1 << C);
+    uint spacing_next = u_BaseProbeSpacing * (1 << nextC);
+
+    uint probeX_C = x / spacing_C;
+    uint probeY_C = y / spacing_C;
+    uint dirX_C = x % spacing_C;
+    uint dirY_C = y % spacing_C;
+
+    vec2 probePixel_C = vec2(probeX_C * spacing_C + spacing_C / 2.0, probeY_C * spacing_C + spacing_C / 2.0);
+    
+    float depth_C;
+    vec3 normal_C;
+    GetGBuffer(probePixel_C, depth_C, normal_C);
+
+    if (depth_C == 1.0) {
+        // Background
+        return;
+    }
+
+    // Direction UV in [0, 1]
+    vec2 octUV = (vec2(dirX_C, dirY_C) + 0.5) / float(spacing_C);
+
+    // Spatial fractional coordinate of our probe in the next cascade's grid
+    vec2 spatialCoord = (probePixel_C - float(spacing_next) / 2.0) / float(spacing_next);
+    ivec2 spatialBase = ivec2(floor(spatialCoord));
+    vec2 spatialFract = fract(spatialCoord);
+
+    vec3 sumRadiance = vec3(0.0);
+    float sumWeight = 0.0;
+
+    // Loop over 4 neighboring spatial probes in C+1
+    for (int sy = 0; sy <= 1; sy++) {
+        for (int sx = 0; sx <= 1; sx++) {
+            ivec2 probeNext = spatialBase + ivec2(sx, sy);
+            
+            // Clamp to screen bounds
+            int maxProbeX = u_ScreenWidth / int(spacing_next) - 1;
+            int maxProbeY = u_ScreenHeight / int(spacing_next) - 1;
+            probeNext.x = clamp(probeNext.x, 0, maxProbeX);
+            probeNext.y = clamp(probeNext.y, 0, maxProbeY);
+
+            vec2 probePixel_next = vec2(probeNext.x * spacing_next + spacing_next / 2.0, probeNext.y * spacing_next + spacing_next / 2.0);
+            
+            float depth_next;
+            vec3 normal_next;
+            GetGBuffer(probePixel_next, depth_next, normal_next);
+
+            // Bilateral weight
+            float spatialW = (sx == 0 ? (1.0 - spatialFract.x) : spatialFract.x) *
+                             (sy == 0 ? (1.0 - spatialFract.y) : spatialFract.y);
+
+            // Depth weight
+            // Linearize depths or just use a small tolerance
+            float depthDiff = abs(depth_C - depth_next);
+            float depthW = exp(-depthDiff * 10000.0); // very sensitive
+
+            // Normal weight
+            float normalW = pow(max(0.0, dot(normal_C, normal_next)), 4.0);
+
+            float weight = spatialW * depthW * normalW;
+
+            if (weight > 0.001) {
+                // Now angular bilinear interpolation inside this next probe
+                vec2 angularCoord = octUV * float(spacing_next) - 0.5;
+                ivec2 angularBase = ivec2(floor(angularCoord));
+                vec2 angularFract = fract(angularCoord);
+
+                vec3 dirRadiance = vec3(0.0);
+                for (int ay = 0; ay <= 1; ay++) {
+                    for (int ax = 0; ax <= 1; ax++) {
+                        ivec2 dirNext = angularBase + ivec2(ax, ay);
+                        
+                        // Handle octahedral wrapping? For simplicity, clamp now.
+                        // True implementation needs proper octahedral wrap.
+                        dirNext = clamp(dirNext, ivec2(0), ivec2(spacing_next - 1));
+
+                        // Read from atlas at C+1
+                        int texX = probeNext.x * int(spacing_next) + dirNext.x;
+                        int texY = probeNext.y * int(spacing_next) + dirNext.y;
+                        int atlasY = texY + nextC * u_ScreenHeight;
+
+                        vec4 nextSample = imageLoad(u_RadianceAtlas, ivec2(texX, atlasY));
+                        
+                        float aW = (ax == 0 ? (1.0 - angularFract.x) : angularFract.x) *
+                                   (ay == 0 ? (1.0 - angularFract.y) : angularFract.y);
+                        
+                        dirRadiance += nextSample.rgb * aW;
+                    }
+                }
+
+                sumRadiance += dirRadiance * weight;
+                sumWeight += weight;
+            }
+        }
+    }
+
+    vec3 interpolated_L = vec3(0.0);
+    if (sumWeight > 0.0001) {
+        interpolated_L = sumRadiance / sumWeight;
+    } else {
+        // Fallback: if all bilateral weights failed, just use pure spatial bilinear (ignore depth/normal)
+        sumRadiance = vec3(0.0);
+        sumWeight = 0.0;
+        
+        for (int sy = 0; sy <= 1; sy++) {
+            for (int sx = 0; sx <= 1; sx++) {
+                ivec2 probeNext = spatialBase + ivec2(sx, sy);
+                int maxProbeX = u_ScreenWidth / int(spacing_next) - 1;
+                int maxProbeY = u_ScreenHeight / int(spacing_next) - 1;
+                probeNext.x = clamp(probeNext.x, 0, maxProbeX);
+                probeNext.y = clamp(probeNext.y, 0, maxProbeY);
+
+                float spatialW = (sx == 0 ? (1.0 - spatialFract.x) : spatialFract.x) *
+                                 (sy == 0 ? (1.0 - spatialFract.y) : spatialFract.y);
+                
+                vec2 angularCoord = octUV * float(spacing_next) - 0.5;
+                ivec2 angularBase = ivec2(floor(angularCoord));
+                vec2 angularFract = fract(angularCoord);
+
+                vec3 dirRadiance = vec3(0.0);
+                for (int ay = 0; ay <= 1; ay++) {
+                    for (int ax = 0; ax <= 1; ax++) {
+                        ivec2 dirNext = angularBase + ivec2(ax, ay);
+                        dirNext = clamp(dirNext, ivec2(0), ivec2(spacing_next - 1));
+
+                        int texX = probeNext.x * int(spacing_next) + dirNext.x;
+                        int texY = probeNext.y * int(spacing_next) + dirNext.y;
+                        int atlasY = texY + nextC * u_ScreenHeight;
+
+                        vec4 nextSample = imageLoad(u_RadianceAtlas, ivec2(texX, atlasY));
+                        
+                        float aW = (ax == 0 ? (1.0 - angularFract.x) : angularFract.x) *
+                                   (ay == 0 ? (1.0 - angularFract.y) : angularFract.y);
+                        
+                        dirRadiance += nextSample.rgb * aW;
+                    }
+                }
+                sumRadiance += dirRadiance * spatialW;
+                sumWeight += spatialW;
+            }
+        }
+        interpolated_L = sumRadiance / max(sumWeight, 0.0001);
+    }
+
+    // Now read our own interval
+    int atlasY_C = int(y) + C * u_ScreenHeight;
+    vec4 currentSample = imageLoad(u_RadianceAtlas, ivec2(x, atlasY_C));
+    
+    vec3 L_C = currentSample.rgb;
+    float beta_C = currentSample.a;
+
+    // Merge!
+    vec3 final_L = L_C + beta_C * interpolated_L;
+    
+    if (u_DebugCategory == 3) {
+        if (u_DebugMode == 1 || u_DebugMode == 2) {
+            // Modes 1 and 2 are handled in rc_trace.comp, bypass merge
+            final_L = L_C;
+        } else if (u_DebugMode == 3) {
+            final_L = L_C; // Current
+        } else if (u_DebugMode == 4) {
+            final_L = interpolated_L; // Parent
+        } else if (u_DebugMode == 5) {
+            final_L = final_L; // Merged
+        } else if (u_DebugMode == 6) {
+            final_L = abs(beta_C * interpolated_L); // Difference
+        }
+    }
+    
+    // Write back
+    imageStore(u_RadianceAtlas, ivec2(x, atlasY_C), vec4(final_L, 0.0));
+}

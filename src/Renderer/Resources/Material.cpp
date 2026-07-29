@@ -1,5 +1,6 @@
 #include "Material.h"
 #include "../../Vendor/glad.h"
+#include <algorithm>
 
 namespace lgt {
 
@@ -15,7 +16,9 @@ namespace lgt {
         m_Shader->SetFloat3("u_Albedo", Albedo);
         m_Shader->SetFloat("u_Metallic", Metallic);
         m_Shader->SetFloat("u_Roughness", Roughness);
-        m_Shader->SetFloat("u_EmissiveStrength", 0.0f); // Default to no emission for now
+        
+        float maxEmissive = std::max(Emissive.r, std::max(Emissive.g, Emissive.b));
+        m_Shader->SetFloat("u_EmissiveStrength", maxEmissive);
 
         // Bind textures if they exist, otherwise bind default textures/colors
         if (AlbedoMap) {

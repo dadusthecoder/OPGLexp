@@ -60,6 +60,7 @@ layout(binding = 7) uniform sampler2D u_AOTexture;
 layout(binding = 8) uniform sampler2D u_DDGIIrradiance;
 layout(binding = 9) uniform sampler2DArray u_ShadowCascades;
 layout(binding = 10) uniform sampler2D u_DDGIDistance;
+layout(binding = 11) uniform sampler2D u_RadianceAtlas;
 
 layout(std430, binding = 10) readonly buffer DDGIProbeStateBuffer { vec4 b_DDGIProbeState[]; };
 
@@ -79,8 +80,85 @@ uniform int u_DDGIProbesPerRow;
 
 uniform int u_EnableRTAO;
 uniform int u_EnableDDGI;
+uniform float u_DDGIIntensity;
 uniform int u_EnableRTShadows;
 uniform int u_EnableIBL;
+
+uniform int u_EnableRC;
+uniform int u_RCBaseProbeSpacing;
+uniform int u_RCScreenWidth;
+uniform int u_RCScreenHeight;
+uniform float u_RCIntensity;
+
+uniform int u_RCDebugCategory;
+uniform int u_RCDebugMode;
+
+// Simple HDR tonemap
+vec3 Tonemap(vec3 color) {
+    return color / (color + vec3(1.0));
+}
+
+vec3 SampleRadianceCascades(vec2 screenUV, vec3 N, vec3 V, out vec3 specularOut, float roughness) {
+    ivec2 screenCoord = ivec2(screenUV * vec2(u_RCScreenWidth, u_RCScreenHeight));
+    int spacing = u_RCBaseProbeSpacing;
+    
+    vec2 spatialCoord = (vec2(screenCoord) - float(spacing) / 2.0) / float(spacing);
+    ivec2 spatialBase = ivec2(floor(spatialCoord));
+    vec2 spatialFract = fract(spatialCoord);
+    
+    vec3 totalIrradiance = vec3(0.0);
+    vec3 totalSpecular = vec3(0.0);
+    vec3 R = reflect(-V, N);
+
+    for (int sy = 0; sy <= 1; sy++) {
+        for (int sx = 0; sx <= 1; sx++) {
+            ivec2 probeNext = spatialBase + ivec2(sx, sy);
+            probeNext.x = clamp(probeNext.x, 0, u_RCScreenWidth / spacing - 1);
+            probeNext.y = clamp(probeNext.y, 0, u_RCScreenHeight / spacing - 1);
+            
+            float spatialW = (sx == 0 ? (1.0 - spatialFract.x) : spatialFract.x) *
+                             (sy == 0 ? (1.0 - spatialFract.y) : spatialFract.y);
+                             
+            vec3 probeIrradiance = vec3(0.0);
+            vec3 probeSpecular = vec3(0.0);
+            float totalDiffW = 0.0;
+            float totalSpecW = 0.0;
+            
+            for (int dy = 0; dy < spacing; dy++) {
+                for (int dx = 0; dx < spacing; dx++) {
+                    int texX = probeNext.x * spacing + dx;
+                    int texY = probeNext.y * spacing + dy;
+                    
+                    vec3 radiance = texelFetch(u_RadianceAtlas, ivec2(texX, texY), 0).rgb;
+                    
+                    vec2 octUV = (vec2(dx, dy) + 0.5) / float(spacing);
+                    vec3 dir = OctDecode(octUV * 2.0 - 1.0);
+                    dir = normalize(dir);
+                    
+                    float ndotl = max(dot(N, dir), 0.0);
+                    probeIrradiance += radiance * ndotl;
+                    totalDiffW += ndotl;
+
+                    float rdotv = max(dot(R, dir), 0.0);
+                    float specPower = exp2(10.0 * (1.0 - roughness));
+                    float specW = pow(rdotv, specPower);
+                    probeSpecular += radiance * specW;
+                    totalSpecW += specW;
+                }
+            }
+            if (totalDiffW > 0.0) probeIrradiance /= totalDiffW;
+            probeIrradiance *= PI;
+            
+            if (totalSpecW > 0.0) probeSpecular /= totalSpecW;
+            
+            totalIrradiance += probeIrradiance * spatialW;
+            totalSpecular += probeSpecular * spatialW;
+        }
+    }
+    
+    specularOut = totalSpecular;
+    return totalIrradiance;
+}
 
 vec3 SampleDDGI(vec3 worldPos, vec3 normal) {
     // Surface bias to prevent self-shadow / shadow acne
@@ -289,8 +367,15 @@ void main() {
     vec3 R = reflect(-V, N);
     
     vec3 irradiance = vec3(0.0);
-    if (u_EnableDDGI != 0 && u_DDGIProbeGridSize.x > 0) {
-        irradiance = SampleDDGI(worldPos, N);
+    vec3 rcSpecular = vec3(0.0);
+    bool useRCSpecular = false;
+
+    if (u_EnableRC != 0) {
+        irradiance = SampleRadianceCascades(v_TexCoord, N, V, rcSpecular, roughness) * INV_PI * u_RCIntensity;
+        useRCSpecular = true;
+    } else if (u_EnableDDGI != 0 && u_DDGIProbeGridSize.x > 0) {
+        // DDGI stores raw cosine-weighted irradiance; apply Lambertian BRDF factor and intensity multiplier
+        irradiance = SampleDDGI(worldPos, N) * INV_PI * u_DDGIIntensity;
     } else if (u_EnableIBL != 0 && textureSize(u_IrradianceMap, 0).x > 1) {
         irradiance = texture(u_IrradianceMap, N).rgb;
     }
@@ -301,7 +386,10 @@ void main() {
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     const float MAX_REFLECTION_LOD = 4.0;
     vec3 prefilteredColor = vec3(0.0);
-    if (u_EnableIBL != 0 && textureSize(u_PrefilterMap, 0).x > 1) {
+    
+    if (useRCSpecular) {
+        prefilteredColor = rcSpecular * u_RCIntensity;
+    } else if (u_EnableIBL != 0 && textureSize(u_PrefilterMap, 0).x > 1) {
         prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     }
     
@@ -319,6 +407,27 @@ void main() {
 
     if (isEmissive > 0.5) {
         color += albedo * emissiveStrength;
+    }
+
+    if (u_RCDebugCategory == 1 && u_RCDebugMode == 0) {
+        color = vec3(1.0, 1.0, 0.0);
+    } else if (u_RCDebugCategory == 2) {
+        color = texelFetch(u_RadianceAtlas, ivec2(gl_FragCoord.xy), 0).rgb;
+    } else if (u_RCDebugCategory == 3) {
+        if (u_RCDebugMode == 0) {
+            color = texelFetch(u_RadianceAtlas, ivec2(gl_FragCoord.xy), 0).rgb;
+        } else {
+            // Already computed in irradiance, just show it
+            color = irradiance;
+        }
+    } else if (u_RCDebugCategory == 4) {
+        if (u_RCDebugMode == 0) {
+            color = diffuseIBL; // Diffuse Only
+        } else if (u_RCDebugMode == 1) {
+            color = specularIBL; // Specular Only
+        } else if (u_RCDebugMode == 2) {
+            color = diffuseIBL + specularIBL; // Combined Indirect
+        }
     }
 
     o_Color = vec4(color, 1.0);

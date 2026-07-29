@@ -52,12 +52,12 @@ namespace lgt {
         }
     }
 
-    void LightCullingPass::RecomputeAABBs(const glm::mat4& invProjMatrix) {
+    void LightCullingPass::RecomputeAABBs(const glm::mat4& invProjMatrix, float nearPlane, float farPlane) {
         s_ClusterAABBShader->Bind();
         s_ClusterAABBShader->SetMat4("u_InvProjection", invProjMatrix);
         s_ClusterAABBShader->SetInt3("u_GridSize", s_GridSize);
-        s_ClusterAABBShader->SetFloat("u_ZNear", 0.1f);
-        s_ClusterAABBShader->SetFloat("u_ZFar", 1000.0f);
+        s_ClusterAABBShader->SetFloat("u_ZNear", nearPlane);
+        s_ClusterAABBShader->SetFloat("u_ZFar", farPlane);
 
         s_ClusterAABBBuffer->BindBase(0);
         
@@ -67,9 +67,9 @@ namespace lgt {
         s_AABBsNeedUpdate = false;
     }
 
-    void LightCullingPass::Execute(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::mat4& invProjMatrix, uint32_t lightCount) {
+    void LightCullingPass::Execute(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::mat4& invProjMatrix, uint32_t lightCount, float nearPlane, float farPlane) {
         if (s_AABBsNeedUpdate) {
-            RecomputeAABBs(invProjMatrix);
+            RecomputeAABBs(invProjMatrix, nearPlane, farPlane);
         }
 
         // Reset global index count

@@ -47,8 +47,21 @@ namespace lgt {
         return result;
     }
 
-    OpenGLShader::OpenGLShader(const std::string& filepath) {
-        std::ifstream in(filepath, std::ios::in | std::ios::binary);
+    OpenGLShader::OpenGLShader(const std::string& filepath) 
+        : m_RendererID(0), m_Filepath(filepath) 
+    {
+        // Extract name from filepath
+        auto lastSlash = filepath.find_last_of("/\\");
+        lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
+        auto lastDot = filepath.rfind('.');
+        auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
+        m_Name = filepath.substr(lastSlash, count);
+        
+        Reload();
+    }
+
+    void OpenGLShader::Reload() {
+        std::ifstream in(m_Filepath, std::ios::in | std::ios::binary);
         std::string result;
         if (in) {
             in.seekg(0, std::ios::end);
@@ -58,16 +71,18 @@ namespace lgt {
                 in.seekg(0, std::ios::beg);
                 in.read(&result[0], size);
                 
-                auto lastSlash = filepath.find_last_of("/\\");
-                std::string dir = lastSlash == std::string::npos ? "." : filepath.substr(0, lastSlash);
+                auto lastSlash = m_Filepath.find_last_of("/\\");
+                std::string dir = lastSlash == std::string::npos ? "." : m_Filepath.substr(0, lastSlash);
                 result = ProcessIncludes(result, dir);
             }
             else {
-                CORE_ERROR("Could not read from file '{}'", filepath);
+                CORE_ERROR("Could not read from file '{}'", m_Filepath);
+                return;
             }
         }
         else {
-            CORE_ERROR("Could not open file '{}'", filepath);
+            CORE_ERROR("Could not open file '{}'", m_Filepath);
+            return;
         }
 
         std::unordered_map<GLenum, std::string> shaderSources;
@@ -84,12 +99,11 @@ namespace lgt {
             size_t begin = foundPos + tokenLen + 1;
             std::string type = result.substr(begin, eol - begin);
             
-            // Trim whitespace
             type.erase(0, type.find_first_not_of(" \t\r\n"));
             type.erase(type.find_last_not_of(" \t\r\n") + 1);
 
             size_t nextLinePos = result.find_first_not_of("\r\n", eol);
-            if (nextLinePos == std::string::npos) break; // empty source
+            if (nextLinePos == std::string::npos) break;
             
             size_t nextTypePos = result.find("#type", nextLinePos);
             size_t nextShaderPos = result.find("#shader", nextLinePos);
@@ -104,6 +118,7 @@ namespace lgt {
 
         GLuint program = glCreateProgram();
         std::vector<GLenum> glShaderIDs;
+        bool compileFailed = false;
         
         for (auto& kv : shaderSources) {
             GLenum type = kv.first;
@@ -122,13 +137,14 @@ namespace lgt {
                 if (maxLength > 0) {
                     std::vector<GLchar> infoLog(maxLength);
                     glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
-                    CORE_ERROR("Shader compilation failure!");
+                    CORE_ERROR("Shader compilation failure in {}!", m_Filepath);
                     CORE_ERROR("{}", infoLog.data());
                 } else {
-                    CORE_ERROR("Shader compilation failure! (No info log)");
+                    CORE_ERROR("Shader compilation failure in {}! (No info log)", m_Filepath);
                 }
                 
                 glDeleteShader(shader);
+                compileFailed = true;
                 break;
             }
 
@@ -136,7 +152,12 @@ namespace lgt {
             glShaderIDs.push_back(shader);
         }
 
-        m_RendererID = program;
+        if (compileFailed) {
+            glDeleteProgram(program);
+            for (auto id : glShaderIDs) glDeleteShader(id);
+            return;
+        }
+
         glLinkProgram(program);
 
         GLint isLinked = 0;
@@ -147,15 +168,14 @@ namespace lgt {
             if (maxLength > 0) {
                 std::vector<GLchar> infoLog(maxLength);
                 glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
-                CORE_ERROR("Shader link failure!");
+                CORE_ERROR("Shader link failure in {}!", m_Filepath);
                 CORE_ERROR("{}", infoLog.data());
             } else {
-                CORE_ERROR("Shader link failure! (No info log)");
+                CORE_ERROR("Shader link failure in {}! (No info log)", m_Filepath);
             }
             
             glDeleteProgram(program);
             for (auto id : glShaderIDs) glDeleteShader(id);
-
             return;
         }
 
@@ -164,12 +184,13 @@ namespace lgt {
             glDeleteShader(id);
         }
 
-        // Extract name from filepath
-        auto lastSlash = filepath.find_last_of("/\\");
-        lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
-        auto lastDot = filepath.rfind('.');
-        auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
-        m_Name = filepath.substr(lastSlash, count);
+        // Only apply the new program if compilation and linking succeeded
+        if (m_RendererID != 0) {
+            glDeleteProgram(m_RendererID);
+        }
+        m_RendererID = program;
+        m_UniformLocationCache.clear();
+        CORE_INFO("Successfully reloaded shader: {}", m_Name);
     }
 
     OpenGLShader::~OpenGLShader() {

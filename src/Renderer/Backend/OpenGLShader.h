@@ -11,6 +11,8 @@ namespace lgt {
         virtual void Bind() const override;
         virtual void Unbind() const override;
 
+        virtual void Reload() override;
+
         virtual void Dispatch(uint32_t numGroupsX, uint32_t numGroupsY, uint32_t numGroupsZ) override;
 
         virtual void SetInt(const std::string& name, int value) override;
@@ -28,6 +30,7 @@ namespace lgt {
     private:
         uint32_t m_RendererID;
         std::string m_Name;
+        std::string m_Filepath;
         std::unordered_map<std::string, int> m_UniformLocationCache;
 
         int GetUniformLocation(const std::string& name);

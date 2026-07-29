@@ -1,0 +1,166 @@
+#type compute
+#version 460 core
+#include "include/common.glsl"
+#include "include/sampling.glsl"
+#include "include/bvh.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+uniform int u_CascadeCount;
+uniform int u_BaseProbeSpacing;
+uniform float u_BaseInterval;
+uniform int u_ScreenWidth;
+uniform int u_ScreenHeight;
+uniform float u_RayIntensity;
+uniform mat4 u_InvViewProjection;
+uniform vec3 u_CameraPos;
+
+uniform vec3 u_SunDirection;
+uniform vec3 u_SunColor;
+uniform float u_SunIntensity;
+
+layout(binding = 0) uniform sampler2D u_gDepth;
+layout(binding = 1) uniform sampler2D u_gNormal;
+
+// Output radiance atlas. RGBA16F. RGB = Radiance, A = Opacity Beta (0 if hit, 1 if miss)
+layout(rgba16f, binding = 0) uniform writeonly image2D u_RadianceAtlas;
+
+uniform int u_DebugCategory;
+uniform int u_DebugMode;
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+    if (x >= u_ScreenWidth || y >= (u_ScreenHeight * u_CascadeCount)) {
+        return;
+    }
+
+    if (u_DebugCategory == 1 && u_DebugMode == 0) { // Stage -1: Shader Dispatch
+        imageStore(u_RadianceAtlas, ivec2(x, y), vec4(1.0, 0.0, 1.0, 1.0)); // Magenta
+        return;
+    }
+
+    uint cascadeIndex = y / u_ScreenHeight;
+    uint localY = y % u_ScreenHeight;
+
+    // Spacing for this cascade
+    uint spacing = u_BaseProbeSpacing * (1 << cascadeIndex);
+
+    // Probe index and direction index
+    uint probeX = x / spacing;
+    uint probeY = localY / spacing;
+    uint dirX = x % spacing;
+    uint dirY = localY % spacing;
+
+    // Center of the probe in screen pixels
+    vec2 probePixel = vec2(probeX * spacing + spacing / 2.0, probeY * spacing + spacing / 2.0);
+    vec2 screenUV = probePixel / vec2(u_ScreenWidth, u_ScreenHeight);
+
+    float depth = texture(u_gDepth, screenUV).r;
+    if (depth == 1.0) {
+        // Sky background, no geometry here.
+        imageStore(u_RadianceAtlas, ivec2(x, y), vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    // Reconstruct World Position
+    vec3 worldPos = ReconstructWorldPos(screenUV, depth, u_InvViewProjection);
+    
+    // Compute direction using octahedral mapping
+    vec2 octUV = (vec2(dirX, dirY) + 0.5) / float(spacing);
+    // map from [0, 1] to [-1, 1]
+    octUV = octUV * 2.0 - 1.0;
+    vec3 rayDir = OctDecode(octUV);
+    rayDir = normalize(rayDir); // Just to be safe
+
+    // Decode G-Buffer normal
+    vec2 encodedNormal = texture(u_gNormal, screenUV).rg;
+    vec3 surfNormal = OctDecode(encodedNormal);
+
+    // Compute interval [t_start, t_end]
+    float t_start = u_BaseInterval * float((1 << cascadeIndex) - 1);
+    float t_end   = u_BaseInterval * float((1 << (cascadeIndex + 1)) - 1);
+    
+    if (cascadeIndex == 0) {
+        t_start += 0.01;
+    }
+
+    // Apply normal bias to prevent self-intersection!
+    vec3 rayOrigin = worldPos + surfNormal * 0.05 + rayDir * t_start;
+    float maxDist = t_end - t_start;
+
+    // Trace ray using BVH
+    HitInfo hit = TraceClosestHit(rayOrigin, rayDir, maxDist);
+
+    if (u_DebugCategory == 2) { // Geometry Debug
+        vec3 color = vec3(0.0);
+        if (u_DebugMode == 0) { // ProbeGrid
+            color = vec3(float(probeX) / 10.0, float(probeY) / 10.0, 0.0);
+            if (dirX == 0 && dirY == 0) color = vec3(1.0); // Center dot
+        } else if (u_DebugMode == 1) { // RayDirections
+            color = abs(rayDir);
+        } else if (u_DebugMode == 2) { // WorldPosition
+            color = abs(normalize(worldPos - u_CameraPos));
+        } else if (u_DebugMode == 3) { // Intervals
+            color = vec3(maxDist / 2.0); // Heatmap approximation
+        } else if (u_DebugMode == 4) { // RayOrigins
+            color = fract(rayOrigin);
+        } else if (u_DebugMode == 5) { // BVHTraversal
+            color = vec3(hit.distance / 50.0); // Distance
+        } else if (u_DebugMode == 6) { // BVHHitData
+            color = hit.hit ? abs(hit.normal) : vec3(0.0);
+        }
+        imageStore(u_RadianceAtlas, ivec2(x, y), vec4(color, 1.0));
+        return;
+    }
+
+    vec4 result = vec4(0.0, 0.0, 0.0, 1.0); // miss by default (beta = 1.0)
+
+    if (hit.hit) {
+        bool isBackface = dot(hit.normal, rayDir) > 0.0;
+        if (!isBackface) {
+            vec3 albedo = vec3(0.5); 
+            
+            vec3 L = normalize(-u_SunDirection);
+            float NdotL = max(dot(hit.normal, L), 0.0);
+            
+            bool inShadow = TraceAnyHit(hit.position + hit.normal * 0.005, L, 1000.0);
+            vec3 directLighting = inShadow ? vec3(0.0) : albedo * u_SunColor * u_SunIntensity * NdotL * INV_PI;
+            
+            result.rgb = directLighting;
+            result.a = 0.0; // hit!
+        } else {
+            // Hit backface -> opaque, but no light
+            result.rgb = vec3(0.0);
+            result.a = 0.0; 
+        }
+    } else {
+        // Miss! If this is the LAST cascade, we sample the skybox
+        if (cascadeIndex == u_CascadeCount - 1) {
+            float skyT = max(0.0, rayDir.y);
+            result.rgb = mix(vec3(0.15, 0.18, 0.25), vec3(0.35, 0.45, 0.6), skyT) * 0.5;
+            result.a = 0.0; // Sky is opaque
+        } else {
+            // Just a miss, passing through
+            result.a = 1.0;
+        }
+    }
+
+    // Apply intensity multiplier
+    result.rgb *= u_RayIntensity;
+
+    if (u_DebugCategory == 3) {
+        if (u_DebugMode == 1) { // RadianceInterval (Direct Lighting)
+            // Just write result.rgb, beta doesn't matter for this view
+            result.a = 1.0; 
+        } else if (u_DebugMode == 2) { // Beta
+            result.rgb = vec3(result.a); // output beta as grayscale
+            result.a = 1.0;
+        }
+        // Mode 0 (Atlas) just writes the normal result.
+        // Modes 3-6 are handled in rc_merge.comp
+    }
+
+    imageStore(u_RadianceAtlas, ivec2(x, y), result);
+}

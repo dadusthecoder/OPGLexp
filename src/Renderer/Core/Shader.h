@@ -8,7 +8,7 @@ namespace lgt {
 
     class Shader {
     public:
-        virtual ~Shader() = default;
+        virtual ~Shader();
 
         virtual void Bind() const = 0;
         virtual void Unbind() const = 0;
@@ -31,6 +31,9 @@ namespace lgt {
 
         static Shader* Create(const std::string& filepath);
         static Shader* CreateCompute(const std::string& filepath);
+
+        virtual void Reload() = 0;
+        static void ReloadAll();
     };
 
 }

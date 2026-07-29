@@ -1,0 +1,6 @@
+#type compute
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+// Stub for debug shader
+void main() {}

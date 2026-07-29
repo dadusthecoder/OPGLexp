@@ -18,6 +18,7 @@ namespace lgt {
         glm::vec3 Albedo = { 1.0f, 1.0f, 1.0f };
         float Metallic = 0.0f;
         float Roughness = 0.5f;
+        glm::vec3 Emissive = { 0.0f, 0.0f, 0.0f };
 
         // Base textures (optional)
         std::shared_ptr<Texture> AlbedoMap = nullptr;

@@ -66,6 +66,13 @@ namespace lgt {
                 out << "      }";
             }
 
+            if (entity.HasComponent<NativeScriptComponent>()) {
+                auto& nsc = entity.GetComponent<NativeScriptComponent>();
+                out << ",\n      \"NativeScriptComponent\": {\n";
+                out << "        \"ScriptName\": \"" << nsc.ScriptName << "\"\n";
+                out << "      }";
+            }
+
             out << "\n    }";
         }
 

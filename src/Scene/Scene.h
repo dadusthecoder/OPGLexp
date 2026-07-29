@@ -21,6 +21,8 @@ namespace lgt {
         
         void OnViewportResize(uint32_t width, uint32_t height);
 
+        static void CreateValidationScene(Scene* scene, class Shader* geoShader, int type);
+
         entt::registry& GetRegistry() { return m_Registry; }
 
     private:

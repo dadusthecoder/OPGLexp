@@ -1,6 +1,6 @@
 #include "DDGIPass.h"
 #include "../../Vendor/glad.h"
-#include "BVHPass.h"
+#include "../Core/RayTracingSubsystem.h"
 #include "../../Helpers/Logger.h"
 
 namespace lgt {
@@ -83,8 +83,8 @@ namespace lgt {
         }
     }
 
-    void DDGIPass::Execute(glm::vec3 sunDir, glm::vec3 sunColor, float sunIntensity, int frameIndex) {
-        if (!BVHPass::IsReady()) return;
+    void DDGIPass::Execute(glm::vec3 sunDir, glm::vec3 sunColor, float sunIntensity, int frameIndex, float bounceIntensity, float hysteresis, float maxRayDist) {
+        if (!RayTracingSubsystem::IsReady()) return;
 
         // --- Pass 1: Probe Ray Tracing ---
         s_TraceShader->Bind();
@@ -94,7 +94,8 @@ namespace lgt {
         s_TraceShader->SetFloat3("u_SunDirection", sunDir);
         s_TraceShader->SetFloat3("u_SunColor", sunColor);
         s_TraceShader->SetFloat("u_SunIntensity", sunIntensity);
-        s_TraceShader->SetFloat("u_MaxRayDistance", 50.0f);
+        s_TraceShader->SetFloat("u_MaxRayDistance", maxRayDist);
+        s_TraceShader->SetFloat("u_BounceIntensity", bounceIntensity);
         s_TraceShader->SetInt3("u_ProbeGridSize", s_GridSize);
         s_TraceShader->SetFloat3("u_ProbeOrigin", s_ProbeOrigin);
         s_TraceShader->SetFloat3("u_ProbeSpacing", s_ProbeSpacing);
@@ -102,20 +103,20 @@ namespace lgt {
 
         s_RayDataBuffer->BindBase(8);
         s_ProbeStateBuffer->BindBase(10);
-        BVHPass::Bind(6, 7);
+        RayTracingSubsystem::Bind(6, 7);
 
         // Bind previous frame irradiance for multi-bounce (texture unit 8)
         glActiveTexture(GL_TEXTURE8);
         glBindTexture(GL_TEXTURE_2D, s_IrradianceAtlas->GetRendererID());
         s_TraceShader->SetInt("u_PrevIrradiance", 8);
 
-        glDispatchCompute((s_TotalProbes + 63) / 64, 1, 1);
+        glDispatchCompute(s_TotalProbes, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
         // --- Pass 2: Irradiance Update ---
         s_UpdateShader->Bind();
         s_UpdateShader->SetInt("u_RaysPerProbe", s_RaysPerProbe);
-        s_UpdateShader->SetFloat("u_Hysteresis", 0.97f);
+        s_UpdateShader->SetFloat("u_Hysteresis", hysteresis);
         s_UpdateShader->SetFloat("u_GammaExponent", 5.0f);
         s_UpdateShader->SetInt3("u_ProbeGridSize", s_GridSize);
         s_UpdateShader->SetInt("u_TotalProbes", s_TotalProbes);

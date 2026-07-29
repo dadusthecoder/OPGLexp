@@ -14,7 +14,7 @@ namespace lgt {
     public:
         // Loads a model and instantiates it into the given scene. 
         // Returns the root entity of the loaded model.
-        static Entity LoadModel(const std::string& path, Scene* scene, Shader* defaultShader);
+        static Entity LoadModel(const std::string& path, Scene* scene, Shader* defaultShader, Entity parent = {});
     };
 
 }

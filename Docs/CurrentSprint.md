@@ -1,10 +1,21 @@
 # Current Sprint
 
 ## Objective
-AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engine` branch.
+Initialize Game Development capabilities via ScriptRegistry and MCP Server tools.
 
 ## Branch
-`engine` (merge to `master` when complete)
+`game-dev` (merge to `master` when complete)
+
+## Completed Tasks
+- [x] Create `src/Game/ScriptRegistry.h` and `.cpp` for dynamic component binding.
+- [x] Update `NativeScriptComponent` and `SceneSerializer.cpp` to store `ScriptName`.
+- [x] Include and initialize `ScriptRegistry::RegisterAllScripts()` in `src/main.cpp`.
+- [x] Create python-based `scripts/mcp_game_dev.py` and `scripts/requirements_mcp.txt` for AI automation.
+- [x] Add Antigravity skill `SKILL.md` (ADR 003).
+
+---
+
+# Completed Sprint: AAA Renderer Upgrade
 
 ## Completed Tasks
 - [x] BVH Infrastructure: `src/Renderer/Utils/BVH.h/.cpp`, `src/Renderer/Passes/BVHPass.h/.cpp` (SAH-binned, GPU SSBO upload)
@@ -54,5 +65,6 @@ AAA Renderer Upgrade — DDGI + RTAO + TAA + IBL + Bloom + ACES Tonemap on `engi
 - [x] `ddgi_probe_classify.comp` — NEW (backface counting, probe relocation, state management)
 - [x] `lighting.glsl` — SampleDDGI rewritten (Chebyshev visibility + backface rejection + probe state + gamma decode)
 - [x] `Renderer.cpp` — Distance atlas (unit 10), probe state SSBO (binding 10), probesPerRow uniform
+- [x] EditorLayer updated with DDGI tuning sliders (Intensity, Bounce Intensity, Hysteresis, Max Ray Distance).
 - [x] Build Debug succeeds, shaders copied
 - [x] Roadmap/DDGI.md updated

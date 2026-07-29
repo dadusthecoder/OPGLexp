@@ -15,6 +15,7 @@ namespace lgt {
         
         bool m_ViewportFocused = false;
         bool m_ViewportHovered = false;
+        float m_CameraSpeed = 5.0f;
         
         void DrawHierarchyPanel();
         void DrawEntityNode(Entity entity);

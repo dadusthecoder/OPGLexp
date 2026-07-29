@@ -7,9 +7,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "../../Helpers/DebugStats.h"
 #include "../../Helpers/Logger.h"
-#include "../Passes/BVHPass.h"
+#include "../Core/RayTracingSubsystem.h"
 #include "../Passes/RTAOPass.h"
 #include "../Passes/DDGIPass.h"
+#include "../Passes/RadianceCascadesPass.h"
 #include "../Passes/IBLPass.h"
 #include "../Passes/TAAPass.h"
 #include "../Passes/BloomPass.h"
@@ -54,6 +55,11 @@ namespace lgt {
     static int s_FrameIndex = 0;
     static bool s_EnableRTAO = false;
     static bool s_EnableDDGI = true;
+    static bool s_EnableRC = true;
+    static float s_DDGIIntensity = 1.0f;
+    static float s_DDGIMultiBounceIntensity = 0.45f;
+    static float s_DDGIHysteresis = 0.97f;
+    static float s_DDGIMaxRayDistance = 50.0f;
     static bool s_EnableIBL = true;
     static bool s_EnableMeshletCulling = true;
     static bool s_EnableTAA = true;
@@ -161,6 +167,7 @@ namespace lgt {
 
         CORE_INFO("Renderer: Calling LightCullingPass::Init");
         LightCullingPass::Init(s_ViewportWidth, s_ViewportHeight);
+        RadianceCascadesPass::Init(s_ViewportWidth, s_ViewportHeight);
 
         // Setup light SSBO
         s_LightDataBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, 1000 * sizeof(LightData) + 16, nullptr, BufferUsage::DynamicDraw);
@@ -206,6 +213,10 @@ namespace lgt {
             delete s_CullShader;
             s_CullShader = nullptr;
         }
+        BloomPass::Shutdown();
+        TAAPass::Shutdown();
+        RadianceCascadesPass::Shutdown();
+
         if (s_GlobalVertexBuffer) { delete s_GlobalVertexBuffer; s_GlobalVertexBuffer = nullptr; }
         if (s_GlobalIndexBuffer) { delete s_GlobalIndexBuffer; s_GlobalIndexBuffer = nullptr; }
         if (s_GlobalMeshletBuffer) { delete s_GlobalMeshletBuffer; s_GlobalMeshletBuffer = nullptr; }
@@ -214,8 +225,6 @@ namespace lgt {
         if (s_GlobalDrawCountBuffer) { delete s_GlobalDrawCountBuffer; s_GlobalDrawCountBuffer = nullptr; }
         RTAOPass::Shutdown();
         DDGIPass::Shutdown();
-        TAAPass::Shutdown();
-        BloomPass::Shutdown();
         RTShadowPass::Shutdown();
         CSMPass::Shutdown();
         LightCullingPass::Shutdown();
@@ -240,6 +249,7 @@ namespace lgt {
         BloomPass::Resize(width, height);
         RTShadowPass::Resize(width, height);
         LightCullingPass::Resize(width, height);
+        RadianceCascadesPass::Resize(width, height);
         SetViewport(0, 0, width, height);
     }
 
@@ -466,7 +476,7 @@ namespace lgt {
             s_GBuffer->Unbind();
         }
 
-        // --- 1.5. RTAO + DDGI Passes ---
+        // --- 1.5. RTAO + DDGI + RC Passes ---
         if (s_GBuffer) {
             if (s_EnableRTAO) {
                 glm::mat4 invVP = glm::inverse(s_ViewProjection);
@@ -476,18 +486,31 @@ namespace lgt {
                     2.0f, 8, s_FrameIndex, invVP);
             }
 
-            if (s_EnableDDGI) {
-                glm::vec3 sunDir(0, -1, 0), sunColor(1.0f);
-                float sunIntensity = 1.0f;
-                for (const auto& l : s_Lights) {
-                    if (l.Type == 0) {
-                        sunDir = l.Direction;
-                        sunColor = l.Color;
-                        sunIntensity = l.Intensity;
-                        break;
-                    }
+            glm::vec3 sunDir(0, -1, 0), sunColor(1.0f);
+            float sunIntensity = 1.0f;
+            for (const auto& l : s_Lights) {
+                if (l.Type == 0) {
+                    sunDir = l.Direction;
+                    sunColor = l.Color;
+                    sunIntensity = l.Intensity;
+                    break;
                 }
-                DDGIPass::Execute(sunDir, sunColor, sunIntensity, s_FrameIndex);
+            }
+
+            if (s_EnableDDGI) {
+                DDGIPass::Execute(sunDir, sunColor, sunIntensity, s_FrameIndex, s_DDGIMultiBounceIntensity, s_DDGIHysteresis, s_DDGIMaxRayDistance);
+            }
+
+            if (s_EnableRC) {
+                RadianceCascadesPass::Execute(
+                    s_GBuffer->GetDepthAttachment()->GetRendererID(),
+                    s_GBuffer->GetColorAttachment(1)->GetRendererID(),
+                    glm::inverse(s_ViewProjection),
+                    s_CameraPosition,
+                    s_FrameIndex,
+                    glm::inverse(s_PrevViewProjection),
+                    sunDir, sunColor, sunIntensity
+                );
             }
 
             if (s_EnableRTShadows) {
@@ -631,6 +654,7 @@ namespace lgt {
             glBindTexture(GL_TEXTURE_2D, DDGIPass::GetIrradianceAtlasID());
             s_LightingShader->SetInt("u_DDGIIrradiance", 8);
             s_LightingShader->SetInt("u_EnableDDGI", s_EnableDDGI ? 1 : 0);
+            s_LightingShader->SetFloat("u_DDGIIntensity", s_DDGIIntensity);
 
             s_LightingShader->SetInt("u_EnableRTShadows", s_EnableRTShadows ? 1 : 0);
             if (s_EnableRTShadows) {
@@ -653,6 +677,22 @@ namespace lgt {
             glActiveTexture(GL_TEXTURE10);
             glBindTexture(GL_TEXTURE_2D, DDGIPass::GetDistanceAtlasID());
             s_LightingShader->SetInt("u_DDGIDistance", 10);
+
+            // Bind Radiance Cascades (texture unit 11)
+            glActiveTexture(GL_TEXTURE11);
+            glBindTexture(GL_TEXTURE_2D, RadianceCascadesPass::GetRadianceAtlasID());
+            s_LightingShader->SetInt("u_RadianceAtlas", 11);
+            
+            s_LightingShader->SetInt("u_EnableRC", s_EnableRC ? 1 : 0);
+            s_LightingShader->SetInt("u_RCBaseProbeSpacing", RadianceCascadesPass::GetBaseProbeSpacing());
+            s_LightingShader->SetInt("u_RCScreenWidth", s_ViewportWidth);
+            s_LightingShader->SetInt("u_RCScreenHeight", s_ViewportHeight);
+            s_LightingShader->SetFloat("u_RCIntensity", RadianceCascadesPass::GetRayIntensity());
+
+#ifdef ATLAS_VALIDATION
+            s_LightingShader->SetInt("u_RCDebugCategory", RadianceCascadesPass::GetDebugCategory());
+            s_LightingShader->SetInt("u_RCDebugMode", RadianceCascadesPass::GetDebugMode());
+#endif
 
             // Bind DDGI probe state buffer (SSBO binding 10)
             DDGIPass::GetProbeStateBuffer()->BindBase(10);
@@ -744,20 +784,31 @@ namespace lgt {
     }
 
     void Renderer::UploadGlobalGeometry(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const std::vector<Meshlet>& meshlets) {
-        s_GlobalVertices = vertices;
-        s_GlobalIndices = indices;
-        s_GlobalMeshlets = meshlets;
+        if (&s_GlobalVertices != &vertices) {
+            s_GlobalVertices = vertices;
+            s_GlobalIndices = indices;
+            s_GlobalMeshlets = meshlets;
+        }
+        RebuildGlobalGeometryBuffers();
+    }
+
+    void Renderer::RebuildGlobalGeometryBuffers() {
+        if (s_GlobalVertices.empty() || s_GlobalIndices.empty() || s_GlobalMeshlets.empty()) return;
 
         if (s_GlobalVertexBuffer) delete s_GlobalVertexBuffer;
         if (s_GlobalIndexBuffer) delete s_GlobalIndexBuffer;
         if (s_GlobalMeshletBuffer) delete s_GlobalMeshletBuffer;
 
-        s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, vertices.size() * sizeof(float), vertices.data(), BufferUsage::StaticCopy);
-        s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, indices.size() * sizeof(uint32_t), indices.data(), BufferUsage::StaticCopy);
-        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, meshlets.size() * sizeof(Meshlet), meshlets.data(), BufferUsage::StaticCopy);
+        s_GlobalVertexBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, s_GlobalVertices.size() * sizeof(float), s_GlobalVertices.data(), BufferUsage::StaticCopy);
+        s_GlobalIndexBuffer = Buffer::Create(BufferType::IndexBuffer, s_GlobalIndices.size() * sizeof(uint32_t), s_GlobalIndices.data(), BufferUsage::StaticCopy);
+        s_GlobalMeshletBuffer = Buffer::Create(BufferType::ShaderStorageBuffer, s_GlobalMeshlets.size() * sizeof(Meshlet), s_GlobalMeshlets.data(), BufferUsage::StaticCopy);
 
-        BVHPass::Build(vertices, indices);
+        RayTracingSubsystem::Build(s_GlobalVertices, s_GlobalIndices);
     }
+
+    std::vector<float>& Renderer::GetGlobalVertices() { return s_GlobalVertices; }
+    std::vector<uint32_t>& Renderer::GetGlobalIndices() { return s_GlobalIndices; }
+    std::vector<Meshlet>& Renderer::GetGlobalMeshlets() { return s_GlobalMeshlets; }
 
     void Renderer::SetRTAOEnabled(bool enabled) {
         s_EnableRTAO = enabled;
@@ -767,13 +818,16 @@ namespace lgt {
         return s_EnableRTAO;
     }
 
-    void Renderer::SetDDGIEnabled(bool enabled) {
-        s_EnableDDGI = enabled;
-    }
-
-    bool Renderer::IsDDGIEnabled() {
-        return s_EnableDDGI;
-    }
+    void Renderer::SetDDGIEnabled(bool enabled) { s_EnableDDGI = enabled; }
+    bool Renderer::IsDDGIEnabled() { return s_EnableDDGI; }
+    void Renderer::SetDDGIIntensity(float intensity) { s_DDGIIntensity = intensity; }
+    float Renderer::GetDDGIIntensity() { return s_DDGIIntensity; }
+    void Renderer::SetDDGIMultiBounceIntensity(float intensity) { s_DDGIMultiBounceIntensity = intensity; }
+    float Renderer::GetDDGIMultiBounceIntensity() { return s_DDGIMultiBounceIntensity; }
+    void Renderer::SetDDGIHysteresis(float hysteresis) { s_DDGIHysteresis = hysteresis; }
+    float Renderer::GetDDGIHysteresis() { return s_DDGIHysteresis; }
+    void Renderer::SetDDGIMaxRayDistance(float distance) { s_DDGIMaxRayDistance = distance; }
+    float Renderer::GetDDGIMaxRayDistance() { return s_DDGIMaxRayDistance; }
 
     void Renderer::SetIBLEnabled(bool enabled) {
         s_EnableIBL = enabled;
@@ -805,5 +859,8 @@ namespace lgt {
 
     void Renderer::SetRTShadowsEnabled(bool enabled) { s_EnableRTShadows = enabled; }
     bool Renderer::IsRTShadowsEnabled() { return s_EnableRTShadows; }
+
+    void Renderer::SetRCEnabled(bool enabled) { s_EnableRC = enabled; }
+    bool Renderer::IsRCEnabled() { return s_EnableRC; }
 
 }

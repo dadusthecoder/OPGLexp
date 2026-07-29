@@ -95,6 +95,7 @@ namespace lgt {
     };
 
     struct NativeScriptComponent {
+        std::string ScriptName;
         NativeScript* instance = nullptr;
         std::function<NativeScript*()> instantiateScript;
         std::function<void(NativeScript*)> destroyScript;

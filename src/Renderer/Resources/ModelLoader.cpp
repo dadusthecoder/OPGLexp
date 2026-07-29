@@ -113,18 +113,10 @@ namespace lgt {
                             Shader* defaultShader, const std::string& directory,
                             std::vector<float>& globalVertices, std::vector<uint32_t>& globalIndices, std::vector<Meshlet>& globalMeshlets) {
         
-        glm::mat4 m;
-        m[0][0] = node->mTransformation.a1; m[1][0] = node->mTransformation.a2; m[2][0] = node->mTransformation.a3; m[3][0] = node->mTransformation.a4;
-        m[0][1] = node->mTransformation.b1; m[1][1] = node->mTransformation.b2; m[2][1] = node->mTransformation.b3; m[3][1] = node->mTransformation.b4;
-        m[0][2] = node->mTransformation.c1; m[1][2] = node->mTransformation.c2; m[2][2] = node->mTransformation.c3; m[3][2] = node->mTransformation.c4;
-        m[0][3] = node->mTransformation.d1; m[1][3] = node->mTransformation.d2; m[2][3] = node->mTransformation.d3; m[3][3] = node->mTransformation.d4;
-        
-        glm::vec3 scale;
-        glm::quat rotation;
-        glm::vec3 translation;
-        glm::vec3 skew;
-        glm::vec4 perspective;
-        glm::decompose(m, scale, rotation, translation, skew, perspective);
+        aiVector3D scaling;
+        aiQuaternion rotation;
+        aiVector3D position;
+        node->mTransformation.Decompose(scaling, rotation, position);
         
         std::string nodeName = node->mName.C_Str();
         if (nodeName.empty()) nodeName = "Node";
@@ -135,9 +127,11 @@ namespace lgt {
         }
         
         auto& transform = nodeEntity.GetComponent<TransformComponent>();
-        transform.Translation = translation;
-        transform.Rotation = glm::eulerAngles(rotation);
-        transform.Scale = scale;
+        transform.Translation = glm::vec3(position.x, position.y, position.z);
+        // Assimp quaternion is (w, x, y, z). GLM quaternion takes (w, x, y, z)
+        glm::quat q(rotation.w, rotation.x, rotation.y, rotation.z);
+        transform.Rotation = glm::eulerAngles(q);
+        transform.Scale = glm::vec3(scaling.x, scaling.y, scaling.z);
 
         for (unsigned int i = 0; i < node->mNumMeshes; i++) {
             aiMesh* aimesh = aiscene->mMeshes[node->mMeshes[i]];
@@ -252,7 +246,7 @@ namespace lgt {
         }
     }
 
-    Entity ModelLoader::LoadModel(const std::string& path, Scene* scene, Shader* defaultShader) {
+    Entity ModelLoader::LoadModel(const std::string& path, Scene* scene, Shader* defaultShader, Entity parent) {
         Assimp::Importer importer;
         const aiScene* aiscene = importer.ReadFile(path, 
             aiProcess_Triangulate | 
@@ -276,19 +270,28 @@ namespace lgt {
             directory = ".";
 
         Entity rootEntity = scene->CreateEntity(path);
-        if (path.find("sponza") != std::string::npos) {
-            auto& rootTransform = rootEntity.GetComponent<TransformComponent>();
-            rootTransform.Scale = glm::vec3(5.0f); // Sponza is too large
+        if (parent) {
+            auto& rootRel = rootEntity.GetComponent<RelationshipComponent>();
+            auto& parentRel = parent.GetComponent<RelationshipComponent>();
+            
+            rootRel.Parent = parent;
+            rootRel.NextSibling = parentRel.FirstChild;
+            
+            if (parentRel.FirstChild != entt::null) {
+                scene->GetRegistry().get<RelationshipComponent>(parentRel.FirstChild).PrevSibling = rootEntity;
+            }
+            parentRel.FirstChild = rootEntity;
+            parentRel.ChildrenCount++;
         }
-        
-        std::vector<float> globalVertices;
-        std::vector<uint32_t> globalIndices;
-        std::vector<Meshlet> globalMeshlets;
+
+        std::vector<float>& globalVertices = Renderer::GetGlobalVertices();
+        std::vector<uint32_t>& globalIndices = Renderer::GetGlobalIndices();
+        std::vector<Meshlet>& globalMeshlets = Renderer::GetGlobalMeshlets();
         
         ProcessNode(aiscene->mRootNode, aiscene, scene, rootEntity, defaultShader, directory, globalVertices, globalIndices, globalMeshlets);
         
         // Upload the accumulated geometry to the renderer
-        Renderer::UploadGlobalGeometry(globalVertices, globalIndices, globalMeshlets);
+        Renderer::RebuildGlobalGeometryBuffers();
         
         spdlog::info("Model '{}' loaded successfully", path);
         return rootEntity;

@@ -1,13 +1,18 @@
 #include "EditorLayer.h"
 #include "../Scene/Components.h"
-#include "../Renderer/Core/Renderer.h"
+#include "../Scene/Entity.h"
+#include "../Renderer/Resources/ModelLoader.h"
 #include "../Renderer/Resources/Material.h"
+#include "../Renderer/Passes/RadianceCascadesPass.h"
+#include "../Renderer/Core/Renderer.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <cstring>
 #include "../Helpers/Logger.h"
 #include "../Helpers/DebugStats.h"
 #include "../Core/Input.h"
+#include "../Renderer/Validation/RendererValidationFramework.h"
+#include "../Helpers/GPUTimer.h"
 #include <GLFW/glfw3.h>
 
 namespace lgt {
@@ -25,7 +30,7 @@ namespace lgt {
             for (auto entityID : view) {
                 auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entityID);
                 if (camera.primary) {
-                    float speed = 5.0f * ts;
+                    float speed = m_CameraSpeed * ts;
                     if (Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT)) speed *= 2.5f;
 
                     // Compute forward, right, up
@@ -70,9 +75,16 @@ namespace lgt {
         ImGui::Begin("Renderer Settings");
 
         if (ImGui::CollapsingHeader("Environment & Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
-            bool rtaoEnabled = Renderer::IsRTAOEnabled();
-            if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
-                Renderer::SetRTAOEnabled(rtaoEnabled);
+            int currentGI = 0;
+            if (Renderer::IsRTAOEnabled()) currentGI = 1;
+            if (Renderer::IsDDGIEnabled()) currentGI = 2;
+            if (Renderer::IsRCEnabled()) currentGI = 3;
+
+            const char* giOptions[] = { "None", "RTAO", "DDGI", "Radiance Cascades", "Path Tracing (Future)" };
+            if (ImGui::Combo("Global Illumination", &currentGI, giOptions, IM_ARRAYSIZE(giOptions))) {
+                Renderer::SetRTAOEnabled(currentGI == 1);
+                Renderer::SetDDGIEnabled(currentGI == 2);
+                Renderer::SetRCEnabled(currentGI == 3);
             }
 
             bool rtShadowsEnabled = Renderer::IsRTShadowsEnabled();
@@ -80,9 +92,102 @@ namespace lgt {
                 Renderer::SetRTShadowsEnabled(rtShadowsEnabled);
             }
 
-            bool ddgiEnabled = Renderer::IsDDGIEnabled();
-            if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
-                Renderer::SetDDGIEnabled(ddgiEnabled);
+            if (Renderer::IsDDGIEnabled()) {
+                if (ImGui::TreeNodeEx("DDGI Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    float ddgiIntensity = Renderer::GetDDGIIntensity();
+                    if (ImGui::SliderFloat("Intensity", &ddgiIntensity, 0.0f, 5.0f)) Renderer::SetDDGIIntensity(ddgiIntensity);
+                    
+                    float ddgiBounce = Renderer::GetDDGIMultiBounceIntensity();
+                    if (ImGui::SliderFloat("Bounce Intensity", &ddgiBounce, 0.0f, 1.0f)) Renderer::SetDDGIMultiBounceIntensity(ddgiBounce);
+                    
+                    float ddgiHysteresis = Renderer::GetDDGIHysteresis();
+                    if (ImGui::SliderFloat("Hysteresis", &ddgiHysteresis, 0.0f, 0.99f)) Renderer::SetDDGIHysteresis(ddgiHysteresis);
+                    
+                    float ddgiRayDist = Renderer::GetDDGIMaxRayDistance();
+                    if (ImGui::SliderFloat("Max Ray Dist", &ddgiRayDist, 10.0f, 200.0f)) Renderer::SetDDGIMaxRayDistance(ddgiRayDist);
+                    ImGui::TreePop();
+                }
+            }
+
+            if (Renderer::IsRCEnabled()) {
+                if (ImGui::TreeNodeEx("Radiance Cascades Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::SliderInt("Cascade Count", &lgt::RadianceCascadesPass::GetCascadeCount(), 2, 10);
+                    ImGui::SliderInt("Base Spacing", &lgt::RadianceCascadesPass::GetBaseProbeSpacing(), 2, 16);
+                    ImGui::SliderFloat("Base Interval", &lgt::RadianceCascadesPass::GetBaseInterval(), 0.01f, 0.5f);
+                    ImGui::SliderFloat("Ray Intensity", &lgt::RadianceCascadesPass::GetRayIntensity(), 0.1f, 5.0f);
+                    ImGui::SliderInt("Debug Cascade", &lgt::RadianceCascadesPass::GetDebugCascade(), -1, lgt::RadianceCascadesPass::GetCascadeCount() - 1);
+                    
+#ifdef ATLAS_VALIDATION
+                    ImGui::Separator();
+                    ImGui::Text("Validation Framework");
+                    const char* debugCategories[] = { "None", "Infrastructure", "Geometry", "Radiance", "Lighting" };
+                    ImGui::Combo("Category", &lgt::RadianceCascadesPass::GetDebugCategory(), debugCategories, IM_ARRAYSIZE(debugCategories));
+                    
+                    int cat = lgt::RadianceCascadesPass::GetDebugCategory();
+                    if (cat == 1) {
+                        const char* modes[] = { "ShaderDispatch" };
+                        ImGui::Combo("Mode", &lgt::RadianceCascadesPass::GetDebugMode(), modes, IM_ARRAYSIZE(modes));
+                    } else if (cat == 2) {
+                        const char* modes[] = { "ProbeGrid", "RayDirections", "WorldPosition", "Intervals", "RayOrigins", "BVHTraversal", "BVHHitData" };
+                        ImGui::Combo("Mode", &lgt::RadianceCascadesPass::GetDebugMode(), modes, IM_ARRAYSIZE(modes));
+                    } else if (cat == 3) {
+                        const char* modes[] = { "Atlas", "RadianceInterval", "Beta", "CascadeCurrent", "CascadeParent", "CascadeMerged", "MergeDifference" };
+                        ImGui::Combo("Mode", &lgt::RadianceCascadesPass::GetDebugMode(), modes, IM_ARRAYSIZE(modes));
+                    } else if (cat == 4) {
+                        const char* modes[] = { "DiffuseOnly", "SpecularOnly", "Combined" };
+                        ImGui::Combo("Mode", &lgt::RadianceCascadesPass::GetDebugMode(), modes, IM_ARRAYSIZE(modes));
+                    }
+                    
+                    if (ImGui::Button("Load Validation Scene 1 (Geometry)")) {
+                        Shader* geoShader = Shader::Create("res/shaders/geometry.glsl");
+                        Scene::CreateValidationScene(m_Scene, geoShader, 1);
+                    }
+                    if (ImGui::Button("Load Validation Scene 2 (Indirect)")) {
+                        Shader* geoShader = Shader::Create("res/shaders/geometry.glsl");
+                        Scene::CreateValidationScene(m_Scene, geoShader, 2);
+                    }
+                    if (ImGui::Button("Load Validation Scene 3 (Temporal)")) {
+                        Shader* geoShader = Shader::Create("res/shaders/geometry.glsl");
+                        Scene::CreateValidationScene(m_Scene, geoShader, 3);
+                    }
+                    
+                    // Display statistics
+                    if (ImGui::TreeNode("Cascade Statistics")) {
+                        auto* stats = lgt::RadianceCascadesPass::GetStatistics();
+                        if (ImGui::BeginTable("StatsTable", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                            ImGui::TableSetupColumn("Cascade");
+                            ImGui::TableSetupColumn("Rays");
+                            ImGui::TableSetupColumn("Hits");
+                            ImGui::TableSetupColumn("Misses");
+                            ImGui::TableSetupColumn("Beta=0");
+                            ImGui::TableSetupColumn("Beta=1");
+                            ImGui::TableHeadersRow();
+                            
+                            for (int i = 0; i < lgt::RadianceCascadesPass::GetCascadeCount(); i++) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::Text("%d", i);
+                                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", stats[i].RaysTraced);
+                                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", stats[i].Hits);
+                                ImGui::TableSetColumnIndex(3); ImGui::Text("%u", stats[i].Misses);
+                                ImGui::TableSetColumnIndex(4); ImGui::Text("%u", stats[i].Beta0);
+                                ImGui::TableSetColumnIndex(5); ImGui::Text("%u", stats[i].Beta1);
+                            }
+                            ImGui::EndTable();
+                        }
+                        ImGui::TreePop();
+                    }
+
+                    if (ImGui::TreeNodeEx("GPU Profiling", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        lgt::ScopedGPUTimer::RetrieveResults();
+                        const auto& times = lgt::ScopedGPUTimer::GetAllTimes();
+                        for (const auto& [name, timeMS] : times) {
+                            ImGui::Text("%s: %.3f ms", name.c_str(), timeMS);
+                        }
+                        ImGui::TreePop();
+                    }
+#endif
+                    ImGui::TreePop();
+                }
             }
 
             bool iblEnabled = Renderer::IsIBLEnabled();
@@ -110,10 +215,23 @@ namespace lgt {
 
                     if (cameraComp.camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective) {
                         float fov = glm::degrees(cameraComp.camera.GetPerspectiveVerticalFOV());
+                        float farClip = cameraComp.camera.GetPerspectiveFarClip();
+                        bool changed = false;
+
                         if (ImGui::DragFloat("FOV", &fov, 0.1f, 1.0f, 179.0f)) {
-                            cameraComp.camera.SetPerspective(glm::radians(fov), cameraComp.camera.GetPerspectiveNearClip(), cameraComp.camera.GetPerspectiveFarClip());
+                            changed = true;
+                        }
+                        if (ImGui::DragFloat("Far Clip", &farClip, 10.0f, 10.0f, 100000.0f)) {
+                            changed = true;
+                        }
+
+                        if (changed) {
+                            cameraComp.camera.SetPerspective(glm::radians(fov), cameraComp.camera.GetPerspectiveNearClip(), farClip);
                         }
                     }
+                    
+                    ImGui::DragFloat("Speed", &m_CameraSpeed, 0.1f, 0.1f, 100.0f);
+                    
                     break; // Only show primary camera
                 }
             }
@@ -309,6 +427,12 @@ namespace lgt {
                         ImGui::CloseCurrentPopup();
                     }
                 }
+                if (!m_SelectedEntity.HasComponent<MeshRendererComponent>()) {
+                    if (ImGui::MenuItem("Mesh Renderer")) {
+                        m_SelectedEntity.AddComponent<MeshRendererComponent>();
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
                 ImGui::EndPopup();
             }
             ImGui::PopItemWidth();
@@ -341,14 +465,12 @@ namespace lgt {
             if (m_SelectedEntity.HasComponent<LightComponent>()) {
                 if (ImGui::TreeNodeEx((void*)typeid(LightComponent).hash_code(), ImGuiTreeNodeFlags_DefaultOpen, "Light")) {
                     auto& lc = m_SelectedEntity.GetComponent<LightComponent>();
-                    ImGui::ColorEdit3("Color", &lc.Color.x);
-                    ImGui::SliderFloat("Intensity", &lc.Intensity, 0.0f, 20.0f);
-                    
                     const char* lightTypes[] = { "Directional", "Point" };
                     ImGui::Combo("Type", &lc.Type, lightTypes, 2);
-                    
+                    ImGui::ColorEdit3("Color", &lc.Color.x);
+                    ImGui::SliderFloat("Intensity", &lc.Intensity, 0.0f, 50.0f);
                     if (lc.Type == 1) {
-                        ImGui::DragFloat("Radius", &lc.Radius, 0.1f);
+                        ImGui::DragFloat("Radius", &lc.Radius, 0.1f, 0.0f, 200.0f);
                     }
                     ImGui::TreePop();
                 }
@@ -357,10 +479,29 @@ namespace lgt {
             if (m_SelectedEntity.HasComponent<MeshRendererComponent>()) {
                 if (ImGui::TreeNodeEx((void*)typeid(MeshRendererComponent).hash_code(), ImGuiTreeNodeFlags_DefaultOpen, "Mesh Renderer")) {
                     auto& mrc = m_SelectedEntity.GetComponent<MeshRendererComponent>();
-                    ImGui::Text("Mesh Path: TODO");
-                    if (mrc.material) {
-                        ImGui::ColorEdit3("Albedo", &mrc.material->Albedo.x);
+                    
+                    if (!mrc.mesh) {
+                        static char meshPath[256] = "res/models/cube/cube.obj";
+                        ImGui::InputText("Model Path", meshPath, sizeof(meshPath));
+                        if (ImGui::Button("Load Model")) {
+                            Shader* geoShader = Shader::Create("res/shaders/geometry.glsl");
+                            ModelLoader::LoadModel(meshPath, m_Scene, geoShader, m_SelectedEntity);
+                        }
+                    } else {
+                        ImGui::Text("Mesh Loaded: %d vertices", mrc.mesh->GetVertexCount());
                     }
+
+                    if (mrc.material) {
+                        ImGui::Separator();
+                        ImGui::Text("Material Properties");
+                        ImGui::ColorEdit3("Albedo", &mrc.material->Albedo.x);
+                        ImGui::SliderFloat("Metallic", &mrc.material->Metallic, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Roughness", &mrc.material->Roughness, 0.0f, 1.0f);
+                        
+                        if (mrc.material->AlbedoMap) ImGui::Text("Albedo Map: [Loaded]");
+                        if (mrc.material->NormalMap) ImGui::Text("Normal Map: [Loaded]");
+                    }
+                    
                     ImGui::TreePop();
                 }
             }
@@ -428,18 +569,10 @@ namespace lgt {
     void EditorLayer::DrawDebugPanel() {
         ImGui::Begin("Debug Stats");
         
-        bool rtaoEnabled = Renderer::IsRTAOEnabled();
-        if (ImGui::Checkbox("Enable RTAO", &rtaoEnabled)) {
-            Renderer::SetRTAOEnabled(rtaoEnabled);
+        if (ImGui::Button("Reload Shaders")) {
+            Shader::ReloadAll();
         }
-        bool ddgiEnabled = Renderer::IsDDGIEnabled();
-        if (ImGui::Checkbox("Enable DDGI", &ddgiEnabled)) {
-            Renderer::SetDDGIEnabled(ddgiEnabled);
-        }
-        bool meshletCullingEnabled = Renderer::IsMeshletCullingEnabled();
-        if (ImGui::Checkbox("Enable Meshlet Culling", &meshletCullingEnabled)) {
-            Renderer::SetMeshletCullingEnabled(meshletCullingEnabled);
-        }
+
         ImGui::Separator();
 
 #ifndef LGT_DIST

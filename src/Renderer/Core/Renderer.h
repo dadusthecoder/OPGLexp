@@ -14,7 +14,7 @@ namespace lgt {
         static void BeginFrame();
         static void EndFrame();
 
-        static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition);
+        static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::vec3& cameraPosition, float nearPlane, float farPlane);
 
         static void OnWindowResize(uint32_t width, uint32_t height);
         static void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
@@ -45,6 +45,14 @@ namespace lgt {
 
         static void SetDDGIEnabled(bool enabled);
         static bool IsDDGIEnabled();
+        static void SetDDGIIntensity(float intensity);
+        static float GetDDGIIntensity();
+        static void SetDDGIMultiBounceIntensity(float intensity);
+        static float GetDDGIMultiBounceIntensity();
+        static void SetDDGIHysteresis(float hysteresis);
+        static float GetDDGIHysteresis();
+        static void SetDDGIMaxRayDistance(float distance);
+        static float GetDDGIMaxRayDistance();
 
         static void SetIBLEnabled(bool enabled);
         static bool IsIBLEnabled();
@@ -67,11 +75,18 @@ namespace lgt {
         static void SetRTShadowsEnabled(bool enabled);
         static bool IsRTShadowsEnabled();
 
+        static void SetRCEnabled(bool enabled);
+        static bool IsRCEnabled();
+
         static RenderCommandQueue& GetQueue();
         
         // --- GPU-Driven Global Buffers ---
         // (In a real engine, these would be managed by a Geometry/Scene manager)
         static void UploadGlobalGeometry(const std::vector<float>& vertices, const std::vector<uint32_t>& indices, const std::vector<Meshlet>& meshlets);
+        static std::vector<float>& GetGlobalVertices();
+        static std::vector<uint32_t>& GetGlobalIndices();
+        static std::vector<Meshlet>& GetGlobalMeshlets();
+        static void RebuildGlobalGeometryBuffers();
         
     private:
         static RenderCommandQueue s_CommandQueue;

@@ -111,7 +111,8 @@ namespace lgt {
     }
 
     void CSMPass::ComputeCascadeSplits(float nearPlane, float farPlane) {
-        float lambda = 0.5f;
+        // High lambda pushes more cascade splits closer to the camera to give high-res shadows where it matters most.
+        float lambda = 0.9f; 
         for (int i = 0; i < 4; i++) {
             float p = (i + 1) / 4.0f;
             float log = nearPlane * std::pow(farPlane / nearPlane, p);
@@ -195,9 +196,10 @@ namespace lgt {
                 maxZ = std::max(maxZ, trf.z);
             }
             
-            // Pull the near plane back to capture shadow casters behind the camera
-            minZ -= 1000.0f;
-            maxZ += 200.0f;
+            // Pull the near plane back to capture shadow casters behind the camera.
+            // 200 is plenty for our 30m Sponza scene, dramatically improving depth precision over 1000.
+            minZ -= 200.0f;
+            maxZ += 100.0f;
             
             const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
             s_LightSpaceMatrices[i] = lightProjection * lightView;

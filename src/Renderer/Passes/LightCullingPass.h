@@ -11,14 +11,14 @@ namespace lgt {
         static void Shutdown();
         static void Resize(uint32_t width, uint32_t height);
 
-        static void Execute(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::mat4& invProjMatrix, uint32_t lightCount);
+        static void Execute(const glm::mat4& viewMatrix, const glm::mat4& projMatrix, const glm::mat4& invProjMatrix, uint32_t lightCount, float nearPlane, float farPlane);
 
         static Buffer* GetLightGridBuffer() { return s_LightGridBuffer; }
         static Buffer* GetLightIndexBuffer() { return s_LightIndexBuffer; }
         static glm::ivec3 GetGridSize() { return s_GridSize; }
 
     private:
-        static void RecomputeAABBs(const glm::mat4& invProjMatrix);
+        static void RecomputeAABBs(const glm::mat4& invProjMatrix, float nearPlane, float farPlane);
 
     private:
         static Shader* s_ClusterAABBShader;

@@ -1,0 +1,33 @@
+#type compute
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+uniform int u_ScreenWidth;
+uniform int u_ScreenHeight;
+uniform int u_CascadeCount;
+
+layout(rgba16f, binding = 0) uniform image2D u_RadianceAtlas;
+layout(rgba16f, binding = 1) uniform image2D u_HistoryAtlas;
+// uniform sampler2D u_gVelocity;
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+    if (x >= u_ScreenWidth || y >= (u_ScreenHeight * u_CascadeCount)) {
+        return;
+    }
+    
+    // For now, no reprojection, just a simple 0.1 temporal blend to reduce noise
+    // In a real implementation we would fetch velocity, reproject pixel, and blend.
+    
+    vec4 current = imageLoad(u_RadianceAtlas, ivec2(x, y));
+    vec4 history = imageLoad(u_HistoryAtlas, ivec2(x, y));
+
+    // Only blend if history is valid (e.g. not black, or we have a valid history flag)
+    // Actually, just pass through for now until velocity is wired.
+    vec4 blended = current; 
+    
+    imageStore(u_RadianceAtlas, ivec2(x, y), blended);
+}

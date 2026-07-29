@@ -9,7 +9,7 @@ namespace lgt {
     class DDGIPass {
     public:
         static void Init(glm::ivec3 gridSize, glm::vec3 probeOrigin, glm::vec3 probeSpacing);
-        static void Execute(glm::vec3 sunDir, glm::vec3 sunColor, float sunIntensity, int frameIndex);
+        static void Execute(glm::vec3 sunDir, glm::vec3 sunColor, float sunIntensity, int frameIndex, float bounceIntensity, float hysteresis, float maxRayDist);
         static void Resize(uint32_t width, uint32_t height);
         static void Shutdown();
 

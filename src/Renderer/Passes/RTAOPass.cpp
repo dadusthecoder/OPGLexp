@@ -1,7 +1,7 @@
 #include "RTAOPass.h"
 #include "../../Helpers/Logger.h"
 #include "../../Vendor/glad.h"
-#include "BVHPass.h"
+#include "../Core/RayTracingSubsystem.h"
 #include <random>
 
 namespace lgt {
@@ -70,7 +70,7 @@ namespace lgt {
     }
 
     void RTAOPass::Execute(uint32_t gDepthID, uint32_t gNormalID, float radius, int numRays, int frameIndex, const glm::mat4& invViewProjection) {
-        if (!BVHPass::IsReady()) return;
+        if (!RayTracingSubsystem::IsReady()) return;
 
         s_RTAOShader->Bind();
         s_RTAOShader->SetMat4("u_InvViewProjection", invViewProjection);
@@ -92,7 +92,7 @@ namespace lgt {
 
         s_RawAO->BindImage(0, 0, false, 0, TextureAccess::WriteOnly);
 
-        BVHPass::Bind(6, 7);
+        RayTracingSubsystem::Bind(6, 7);
 
         glDispatchCompute((s_Width + 7) / 8, (s_Height + 7) / 8, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
